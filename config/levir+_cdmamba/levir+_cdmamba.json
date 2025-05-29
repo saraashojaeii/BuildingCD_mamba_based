@@ -13,7 +13,7 @@
   "datasets": {
     "train": {
       "name": "LEVIR-CD+256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD+256",
+      "datasetroot": "/home/saraashojaeii/Desktop/Building_Damage_detection/00 - Datasets/00 - Single-Class/LEVIR-CD/",
       "resolution": 256,
       "num_workers": 2,
       "batch_size": 6,
@@ -22,7 +22,7 @@
     },
     "val": {
       "name": "LEVIR-CD+256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD+256",
+      "datasetroot": "/home/saraashojaeii/Desktop/Building_Damage_detection/00 - Datasets/00 - Single-Class/LEVIR-CD/",
       "resolution": 256,
       "num_workers": 2,
       "batch_size": 6,
@@ -32,7 +32,7 @@
 
     "test": {
       "name": "LEVIR-CD+256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD+256",
+      "datasetroot": "/home/saraashojaeii/Desktop/Building_Damage_detection/00 - Datasets/00 - Single-Class/LEVIR-CD/",
       "resolution": 256,
       "num_workers": 2,
       "batch_size": 6,

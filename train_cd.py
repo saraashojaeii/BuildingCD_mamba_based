@@ -17,7 +17,7 @@ from misc.torchutils import get_scheduler, save_network
 
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='/data/zht/PycharmProiect/CDMamba/config/whu_mamaba/whu_cdmamba.json',
+    parser.add_argument('--config', type=str, default='/workspace/BuildingCD_mamba_based/config/mamba/levir_cdmamba.json',
                         help='JSON file for configuration')
     parser.add_argument('--phase', type=str, default='train',
                         choices=['train', 'test'], help='Run either train(training + validation) or testing',)

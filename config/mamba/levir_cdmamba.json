@@ -14,29 +14,29 @@
   "datasets": {
     "train": {
       "name": "LEVIR-CD-256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD256",
+      "datasetroot": "/root/home/",
       "resolution": 256,
-      "num_workers": 2,
-      "batch_size": 6,
+      "num_workers": 0,
+      "batch_size": 2,
       "use_shuffle": true,
       "data_len": -1
     },
     "val": {
       "name": "LEVIR-CD-256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD256",
+      "datasetroot": "/root/home/",
       "resolution": 256,
-      "num_workers": 2,
-      "batch_size": 6,
+      "num_workers": 0,
+      "batch_size": 2,
       "use_shuffle": true,
       "data_len": -1
     },
 
     "test": {
       "name": "LEVIR-CD-256",
-      "datasetroot": "/data/zht/dataset/LEVIR-CD256",
+      "datasetroot": "/root/home/",
       "resolution": 256,
-      "num_workers": 2,
-      "batch_size": 6,
+      "num_workers": 0,
+      "batch_size": 2,
       "use_shuffle": false,
       "data_len": -1
     }
