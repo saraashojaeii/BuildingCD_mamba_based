@@ -94,7 +94,7 @@ if __name__ == '__main__':
 
     device = torch.device('cuda' if opt['gpu_ids'] is not None else 'cpu')
     cd_model.to(device)
-    if len(opt['gpu_ids']) > 0:
+    if len(opt['gpu_ids']) > 1:
         cd_model = nn.DataParallel(cd_model)
     metric = ConfuseMatrixMeter(n_class=2)
     log_dict = OrderedDict()
