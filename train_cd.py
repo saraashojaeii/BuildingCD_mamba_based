@@ -96,7 +96,7 @@ if __name__ == '__main__':
     cd_model.to(device)
     if len(opt['gpu_ids']) > 1:
         cd_model = nn.DataParallel(cd_model)
-    metric = ConfuseMatrixMeter(n_class=2)
+    metric = ConfuseMatrixMeter(n_class=10)
     log_dict = OrderedDict()
     #################
     # Training loop #
