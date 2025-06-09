@@ -64,6 +64,12 @@ class ConfuseMatrixMeter(AverageMeter):
         return scores_dict
 
 
+def __fast_hist(label_true, label_pred, num_classes):
+    return np.bincount(
+        num_classes * label_true.astype(int) + label_pred.astype(int),
+        minlength=num_classes**2
+    ).reshape(num_classes, num_classes)
+
 
 def harmonic_mean(xs):
     harmonic_mean = len(xs) / sum((x+1e-6)**-1 for x in xs)
@@ -170,25 +176,48 @@ def cm2score(confusion_matrix):
     score_dict.update(cls_recall)
     return score_dict
 
-
 def get_confuse_matrix(num_classes, label_gts, label_preds):
-    """计算一组预测的混淆矩阵"""
-    def __fast_hist(label_gt, label_pred):
+    """Compute confusion matrix for a batch of predictions."""
+    def __fast_hist(label_gt, label_pred, num_classes):
         """
-        Collect values for Confusion Matrix
-        For reference, please see: https://en.wikipedia.org/wiki/Confusion_matrix
+        Collect values for Confusion Matrix.
+        For reference: https://en.wikipedia.org/wiki/Confusion_matrix
         :param label_gt: <np.array> ground-truth
         :param label_pred: <np.array> prediction
+        :param num_classes: <int> number of classes
         :return: <np.ndarray> values for confusion matrix
         """
         mask = (label_gt >= 0) & (label_gt < num_classes)
-        hist = np.bincount(num_classes * label_gt[mask].astype(int) + label_pred[mask],
-                           minlength=num_classes**2).reshape(num_classes, num_classes)
+        hist = np.bincount(
+            num_classes * label_gt[mask].astype(int) + label_pred[mask],
+            minlength=num_classes**2
+        ).reshape(num_classes, num_classes)
         return hist
-    confusion_matrix = np.zeros((num_classes, num_classes))
+
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.float64)
     for lt, lp in zip(label_gts, label_preds):
-        confusion_matrix += __fast_hist(lt.flatten(), lp.flatten())
+        confusion_matrix += __fast_hist(lt.flatten(), lp.flatten(), num_classes)
+
     return confusion_matrix
+
+# def get_confuse_matrix(num_classes, label_gts, label_preds):
+#     """计算一组预测的混淆矩阵"""
+#     def __fast_hist(label_gt, label_pred):
+#         """
+#         Collect values for Confusion Matrix
+#         For reference, please see: https://en.wikipedia.org/wiki/Confusion_matrix
+#         :param label_gt: <np.array> ground-truth
+#         :param label_pred: <np.array> prediction
+#         :return: <np.ndarray> values for confusion matrix
+#         """
+#         mask = (label_gt >= 0) & (label_gt < num_classes)
+#         hist = np.bincount(num_classes * label_gt[mask].astype(int) + label_pred[mask],
+#                            minlength=num_classes**2).reshape(num_classes, num_classes)
+#         return hist
+#     confusion_matrix = np.zeros((num_classes, num_classes))
+#     for lt, lp in zip(label_gts, label_preds):
+#         confusion_matrix += __fast_hist(lt.flatten(), lp.flatten())
+#     return confusion_matrix
 
 
 def get_mIoU(num_classes, label_gts, label_preds):
