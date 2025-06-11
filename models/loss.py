@@ -5,7 +5,7 @@ import torch.nn .functional as F
 from misc.torchutils import class2one_hot,simplex
 from models.darnet_help.loss_help import FocalLoss, dernet_dice_loss
 
-def cross_entropy(input, target, weight=None, reduction='mean',ignore_index=255):
+def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_index=255):
     """
     logSoftmax_with_loss
     :param input: torch.Tensor, N*C*H*W
@@ -16,57 +16,124 @@ def cross_entropy(input, target, weight=None, reduction='mean',ignore_index=255)
     target = target.long()
     if target.dim() == 4:
         target = torch.squeeze(target, dim=1)
-    if input.shape[-1] != target.shape[-1]:
+    if input.shape[-1] != target.shape[-1]: # Ensure spatial dimensions match
         input = F.interpolate(input, size=target.shape[1:], mode='bilinear',align_corners=True)
 
     return F.cross_entropy(input=input, target=target, weight=weight,
                            ignore_index=ignore_index, reduction=reduction)
 
+class DiceLoss(nn.Module):
+    def __init__(self, num_classes, weight=None, ignore_index=255, smooth=1e-10, idc=None):
+        super(DiceLoss, self).__init__()
+        self.num_classes = num_classes
+        self.weight = weight
+        self.ignore_index = ignore_index 
+        self.smooth = smooth
+        self.idc = idc if idc is not None else list(range(self.num_classes))
 
-def dice_loss(predicts,target,weight=None):
-    idc= [0, 1]
-    probs = torch.softmax(predicts, dim=1)
-    # target = target.unsqueeze(1)
-    target = class2one_hot(target, 7)
-    assert simplex(probs) and simplex(target)
+    def forward(self, predicts, target):
+        probs = torch.softmax(predicts, dim=1)
+        
+        target = target.long()
+        if target.dim() == 4:
+            target = target.squeeze(1)
+        
+        target_one_hot = class2one_hot(target, self.num_classes)
+        
+        assert simplex(probs)
+        assert simplex(target_one_hot)
 
-    pc = probs[:, idc, ...].type(torch.float32)
-    tc = target[:, idc, ...].type(torch.float32)
-    intersection: Tensor = einsum("bcwh,bcwh->bc", pc, tc)
-    union: Tensor = (einsum("bkwh->bk", pc) + einsum("bkwh->bk", tc))
+        pc = probs[:, self.idc, ...].type(torch.float32)
+        tc = target_one_hot[:, self.idc, ...].type(torch.float32)
 
-    divided: Tensor = torch.ones_like(intersection) - (2 * intersection + 1e-10) / (union + 1e-10)
+        intersection: Tensor = einsum("bcwh,bcwh->bc", pc, tc)
+        
+        card_pc: Tensor = einsum("bcwh->bc", pc)
+        card_tc: Tensor = einsum("bcwh->bc", tc)
+        
+        union: Tensor = card_pc + card_tc
 
-    loss = divided.mean()
-    return loss
+        dice_score_per_class: Tensor = (2 * intersection + self.smooth) / (union + self.smooth)
+        dice_loss_per_class: Tensor = 1.0 - dice_score_per_class
 
-def ce_dice(input, target, weight=None):
-    ce_loss = cross_entropy(input, target)
-    dice_loss_ = dice_loss(input, target)
-    loss = 0.5 * ce_loss + 0.5 * dice_loss_
-    return loss
+        if self.weight is not None:
+            class_weights = torch.tensor(self.weight, device=predicts.device, dtype=torch.float32)[self.idc]
+            dice_loss_per_class = dice_loss_per_class * class_weights.view(1, -1) # ensure broadcasting b*c
+            loss = (dice_loss_per_class.sum(dim=1) / class_weights.sum()).mean() # weighted mean over classes, then mean over batch
+        else:
+            loss = dice_loss_per_class.mean() # Mean over classes and batch
 
-def dice(input, target, weight=None):
-    dice_loss_ = dice_loss(input, target)
-    return dice_loss_
+        return loss
 
-def ce2_dice1(input, target, weight=None):
-    ce_loss = cross_entropy(input, target)
-    dice_loss_ = dice_loss(input, target)
-    loss = ce_loss + 0.5 * dice_loss_
-    return loss
+class CEDiceLoss(nn.Module):
+    def __init__(self, num_classes, ce_weight=0.5, dice_weight=0.5, cross_entropy_kwargs=None, dice_loss_kwargs=None):
+        super(CEDiceLoss, self).__init__()
+        self.num_classes = num_classes
+        self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
+        
+        _ce_kwargs = cross_entropy_kwargs if cross_entropy_kwargs is not None else {}
+        self.cross_entropy_fn = cross_entropy_loss_fn
 
-def ce1_dice2(input, target, weight=None):
-    ce_loss = cross_entropy(input, target)
-    dice_loss_ = dice_loss(input, target)
-    loss = 0.5 * ce_loss +  dice_loss_
-    return loss
+        _dice_kwargs = dice_loss_kwargs if dice_loss_kwargs is not None else {}
+        self.dice_loss = DiceLoss(num_classes=self.num_classes, **_dice_kwargs)
 
-def ce_scl(input, target, weight=None):
-    ce_loss = cross_entropy(input, target)
-    dice_loss_ = dice_loss(input, target)
-    loss = 0.5 * ce_loss + 0.5 * dice_loss_
-    return loss
+    def forward(self, input, target):
+        ce_loss = self.cross_entropy_fn(input, target)
+        dice_val = self.dice_loss(input, target)
+        loss = self.ce_weight * ce_loss + self.dice_weight * dice_val
+        return loss
+
+class DiceOnlyLoss(nn.Module):
+    def __init__(self, num_classes, dice_loss_kwargs=None):
+        super(DiceOnlyLoss, self).__init__()
+        self.num_classes = num_classes
+        _dice_kwargs = dice_loss_kwargs if dice_loss_kwargs is not None else {}
+        self.dice_loss = DiceLoss(num_classes=self.num_classes, **_dice_kwargs)
+
+    def forward(self, input, target):
+        return self.dice_loss(input, target)
+
+class CE2Dice1Loss(nn.Module):
+    def __init__(self, num_classes, ce_weight=1.0, dice_weight=0.5, cross_entropy_kwargs=None, dice_loss_kwargs=None):
+        super(CE2Dice1Loss, self).__init__()
+        self.num_classes = num_classes
+        self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
+        
+        _ce_kwargs = cross_entropy_kwargs if cross_entropy_kwargs is not None else {}
+        self.cross_entropy_fn = cross_entropy_loss_fn
+
+        _dice_kwargs = dice_loss_kwargs if dice_loss_kwargs is not None else {}
+        self.dice_loss = DiceLoss(num_classes=self.num_classes, **_dice_kwargs)
+
+    def forward(self, input, target):
+        ce_loss = self.cross_entropy_fn(input, target)
+        dice_val = self.dice_loss(input, target)
+        loss = self.ce_weight * ce_loss + self.dice_weight * dice_val
+        return loss
+
+class CE1Dice2Loss(nn.Module):
+    def __init__(self, num_classes, ce_weight=0.5, dice_weight=1.0, cross_entropy_kwargs=None, dice_loss_kwargs=None):
+        super(CE1Dice2Loss, self).__init__()
+        self.num_classes = num_classes
+        self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
+
+        _ce_kwargs = cross_entropy_kwargs if cross_entropy_kwargs is not None else {}
+        self.cross_entropy_fn = cross_entropy_loss_fn
+
+        _dice_kwargs = dice_loss_kwargs if dice_loss_kwargs is not None else {}
+        self.dice_loss = DiceLoss(num_classes=self.num_classes, **_dice_kwargs)
+        
+    def forward(self, input, target):
+        ce_loss = self.cross_entropy_fn(input, target)
+        dice_val = self.dice_loss(input, target)
+        loss = self.ce_weight * ce_loss + self.dice_weight * dice_val
+        return loss
+
+# Note: ce_scl was identical to ce_dice. If it needs specific SCL logic, it requires a separate implementation.
+# For now, if 'ce_scl' is chosen, it would need to be mapped to CEDiceLoss or a new SCL specific class.
 
 
 def weighted_BCE_logits(logit_pixel, truth_pixel, weight_pos=0.25, weight_neg=0.75):

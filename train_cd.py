@@ -69,19 +69,34 @@ if __name__ == '__main__':
     #Create cd model
     cd_model = Model.create_CD_model(opt)
 
+    num_classes = opt['model']['n_classes']
+    logger.info(f"Number of classes for loss function: {num_classes}")
+
     #Create criterion
     if opt['model']['loss'] == 'ce_dice':
-        loss_fun = ce_dice
+        loss_fun = CEDiceLoss(num_classes=num_classes)
     elif opt['model']['loss'] == 'ce':
-        loss_fun = cross_entropy
+        # CrossEntropy can be used as a function or nn.Module. Using function for now.
+        loss_fun = cross_entropy_loss_fn 
     elif opt['model']['loss'] == 'dice':
-        loss_fun = dice
+        loss_fun = DiceOnlyLoss(num_classes=num_classes)
     elif opt['model']['loss'] == 'ce2_dice1':
-        loss_fun = ce2_dice1
+        loss_fun = CE2Dice1Loss(num_classes=num_classes)
     elif opt['model']['loss'] == 'ce1_dice2':
-        loss_fun = ce1_dice2
+        loss_fun = CE1Dice2Loss(num_classes=num_classes)
+    # Add other loss types if needed, e.g., for 'ce_scl'
+    # elif opt['model']['loss'] == 'ce_scl':
+    #     loss_fun = CEDiceLoss(num_classes=num_classes) # Or a specific SCL loss class
+    else:
+        raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
-    #loss_fun.to(opt["gpu_ids"])
+    device = torch.device('cuda' if opt['gpu_ids'] is not None and torch.cuda.is_available() else 'cpu')
+    # If loss_fun is an nn.Module, move it to the device
+    if isinstance(loss_fun, nn.Module):
+        loss_fun.to(device)
+    # The following line was commented out and non-standard for moving to device:
+    # loss_fun.to(opt["gpu_ids"]) 
+    # Instead, ensure the device variable is correctly used for models and data.
 
     #Create optimer
     if opt['train']["optimizer"]["type"] == 'adam':
