@@ -83,13 +83,13 @@ class CDDataset(Dataset):
         img_B = Image.open(B_path).convert('RGB')
 
         L_path = get_label_path(self.root_dir, self.img_name_list[index % self.data_len])
-        img_label = Image.open(L_path).convert("RGB")
+        img_label = Image.open(L_path).convert('L') # Load as grayscale
 
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
-        img_label = Util.transform_augment_cd(img_label, min_max=(0, 1))
-        if img_label.dim() > 2:
-            img_label = img_label[0]
+        # Convert label to tensor without normalization
+        img_label = totensor(img_label) * 255
+        img_label = img_label.squeeze().long() # Remove channel dim and convert to long
 
         return {'A':img_A, 'B':img_B, 'L':img_label, 'Index':index}
 
