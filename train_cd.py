@@ -124,11 +124,7 @@ if __name__ == '__main__':
                     gt = gt.squeeze(1)  # Shape: [B, H, W]
 
                 pred_img = cd_model(train_im1, train_im2)
-                train_loss = loss_fun(pred_img, gt)
-                optimer.zero_grad()
-                train_loss.backward()
-                optimer.step()
-                log_dict['loss'] = train_loss.item()
+                
 
                 # Prediction and metric update
                 G_pred = torch.argmax(pred_img.detach(), dim=1)
@@ -137,9 +133,17 @@ if __name__ == '__main__':
 
                 # Debug print (only once)
                 # if current_step == 0 and current_epoch == 0:
+
+
                 print("DEBUG: Unique ground truth labels:", np.unique(gt_np))
                 print("DEBUG: Unique predictions:", np.unique(pred_np))
                 print("DEBUG: Metric num_classes:", metric.n_class)
+
+                train_loss = loss_fun(pred_img, gt)
+                optimer.zero_grad()
+                train_loss.backward()
+                optimer.step()
+                log_dict['loss'] = train_loss.item()
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
