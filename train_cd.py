@@ -25,7 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('-log_eval', action='store_true')
 
     #paser config
-    args =parser.parse_args()
+    args = parser.parse_args()
     opt = Logger.parse(args)
 
     #Convert to NoneDict, which return None for missing key.

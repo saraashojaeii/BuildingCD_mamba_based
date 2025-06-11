@@ -68,3 +68,4 @@ wcwidth==0.2.13
 yacs==0.1.8
 yapf==0.40.2
 zipp==3.17.0
+opencv-python-headless
