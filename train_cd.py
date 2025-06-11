@@ -136,10 +136,10 @@ if __name__ == '__main__':
                 pred_np = G_pred.cpu().numpy()
 
                 # Debug print (only once)
-                if current_step == 0 and current_epoch == 0:
-                    print("DEBUG: Unique ground truth labels:", np.unique(gt_np))
-                    print("DEBUG: Unique predictions:", np.unique(pred_np))
-                    print("DEBUG: Metric num_classes:", metric.n_class)
+                # if current_step == 0 and current_epoch == 0:
+                print("DEBUG: Unique ground truth labels:", np.unique(gt_np))
+                print("DEBUG: Unique predictions:", np.unique(pred_np))
+                print("DEBUG: Metric num_classes:", metric.n_class)
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
