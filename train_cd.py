@@ -183,6 +183,106 @@ if __name__ == '__main__':
 
             metric.clear()
 
+            ##################
+            ### validation ###
+            ##################
+            cd_model.eval()
+            with torch.no_grad():
+                if current_epoch % opt['train']['val_freq'] == 0:
+                    val_result_path = '{}/val/{}'.format(opt['path_cd']['result'], current_epoch)
+                    os.makedirs(val_result_path, exist_ok=True)
+
+                    for current_step, val_data in enumerate(val_loader):
+                        val_img1 = val_data['A'].to(device)
+                        val_img2 = val_data['B'].to(device)
+                        pred_img = cd_model(val_img1, val_img2)
+                        gt = val_data['L'].to(device).long()
+                        val_loss = loss_fun(pred_img, gt)
+                        log_dict['loss'] = val_loss.item()
+                        #pred score
+                        G_pred = pred_img.detach()
+                        G_pred = torch.argmax(G_pred, dim=1)
+                        current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=gt.detach().cpu().numpy())
+                        log_dict['running_acc'] = current_score.item()
+
+                        # log running batch status for val data
+                        if current_step % opt['train']['val_print_iter'] == 0:
+                            # message
+                            logs = log_dict
+                            message = '[Validation CD]. epoch: [%d/%d]. Itter: [%d/%d], running_mf1: %.5f\n' % \
+                                      (current_epoch, opt['train']['n_epoch'] - 1, current_step, len(val_loader), logs['running_acc'])
+                            logger.info(message)
+
+                            #visual
+                            out_dict = OrderedDict()
+                            out_dict['pred_cm'] = torch.argmax(pred_img, dim=1, keepdim=False)
+                            out_dict['gt_cm'] = gt
+                            visuals = out_dict
+
+                            img_mode = "grid"
+                            if img_mode == "single":
+                                # Converting to uint8
+                                img_A = Metrics.tensor2img(val_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+                                img_B = Metrics.tensor2img(val_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+                                gt_cm = Metrics.tensor2img(visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                                                           out_type=np.uint8, min_max=(0, 1))  # uint8
+                                pred_cm = Metrics.tensor2img(visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                                                             out_type=np.uint8, min_max=(0, 1))  # uint8
+
+                                # save imgs
+                                Metrics.save_img(
+                                    img_A, '{}/img_A_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
+                                Metrics.save_img(
+                                    img_B, '{}/img_B_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
+                                Metrics.save_img(
+                                    pred_cm, '{}/img_pred_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
+                                Metrics.save_img(
+                                    gt_cm, '{}/img_gt_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
+                            else:
+                                # grid img
+                                visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
+                                visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
+                                grid_img = torch.cat((val_data['A'].to(device),
+                                                      val_data['B'].to(device),
+                                                      visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                                                      visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1)),
+                                                     dim=0)
+                                grid_img = Metrics.tensor2img(grid_img)  # uint8
+                                Metrics.save_img(
+                                    grid_img,'{}/img_A_B_pred_gt_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
+
+                    ### log epoch status ###
+                    scores = metric.get_scores()
+                    epoch_acc = scores['mf1']
+                    log_dict['epoch_acc'] = epoch_acc.item()
+                    for k, v in scores.items():
+                        log_dict[k] = v
+                    logs = log_dict
+                    message = '[Validation CD (epoch summary)]: epoch: [%d/%d]. epoch_mF1=%.5f \n' % \
+                              (current_epoch, opt['train']['n_epoch'], logs['epoch_acc'])
+                    for k, v in logs.items():
+                        message += '{:s}: {:.4e} '.format(k, v)
+                    message += '\n'
+                    logger.info(message)
+
+                    #best model
+                    if logs['epoch_acc'] > best_mF1:
+                        is_best_model = True
+                        best_mF1 = logs['epoch_acc']
+                        logger.info('[Validation CD] Best model updated. Saving the models (current + best) and training states.')
+                        # save model
+                        save_network(opt, current_epoch, cd_model, optimer, is_best_model)
+                    else:
+                        is_best_model = False
+                        logger.info('[Validation CD]Saving the current cd model and training states.')
+                    logger.info('--- Proceed To The Next Epoch ----\n \n')
+
+
+                    metric.clear()
+
+            get_scheduler(optimizer=optimer, args=opt['train']).step()
+        logger.info('End of training.')
+
     else:
         logger.info('Begin Model Evaluation (testing).')
         test_result_path = '{}/test/'.format(opt['path_cd']['result'])
