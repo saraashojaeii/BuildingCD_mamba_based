@@ -83,7 +83,9 @@ class CDDataset(Dataset):
         img_B = Image.open(B_path).convert('RGB')
 
         L_path = get_label_path(self.root_dir, self.img_name_list[index % self.data_len])
-        img_label = Image.open(L_path).convert('L') # Load as grayscale
+        # Load the third channel of the image as the label
+        img_label_rgb = Image.open(L_path).convert('RGB')
+        _, _, img_label = img_label_rgb.split()
 
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
