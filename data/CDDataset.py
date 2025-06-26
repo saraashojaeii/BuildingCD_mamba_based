@@ -87,11 +87,10 @@ class CDDataset(Dataset):
         # Load the third channel of the image as the label
         img_label_rgb = Image.open(L_path).convert('RGB')
         _, _, img_label = img_label_rgb.split()
-
-        # Remap label values: (0, 1) -> 0, 2 -> 1
-        # img_label = np.array(img_label)
-        # img_label = (img_label == 2).astype(np.uint8)
-        # img_label = Image.fromarray(img_label)
+``
+        img_label = np.array(img_label)
+        img_label = (img_label == 255).astype(np.uint8)
+        img_label = Image.fromarray(img_label)
 
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
