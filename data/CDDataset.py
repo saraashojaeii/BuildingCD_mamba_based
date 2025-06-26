@@ -52,6 +52,7 @@ def get_label1_path(root_dir, img_name):
 def get_label2_path(root_dir, img_name):
     return os.path.join(root_dir, LABEL2_FOLDER_NAME, img_name)
 
+
 class CDDataset(Dataset):
     def __init__(self, root_dir, resolution=256, split='train', data_len=-1, label_transform=None):
 
@@ -88,9 +89,9 @@ class CDDataset(Dataset):
         _, _, img_label = img_label_rgb.split()
 
         # Remap label values: (0, 1) -> 0, 2 -> 1
-        img_label = np.array(img_label)
-        img_label = (img_label == 2).astype(np.uint8)
-        img_label = Image.fromarray(img_label)
+        # img_label = np.array(img_label)
+        # img_label = (img_label == 2).astype(np.uint8)
+        # img_label = Image.fromarray(img_label)
 
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
