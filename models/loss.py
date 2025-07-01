@@ -46,11 +46,11 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
     # Now ensure spatial dimensions match for interpolation
     if input.shape[-1] != target.shape[-1] or input.shape[-2] != target.shape[-2]:
         try:
-            # print(f"Interpolating input from {input.shape} to match target {target.shape}")
+            print(f"Interpolating input from {input.shape} to match target {target.shape}")
             input = F.interpolate(input, size=(target.shape[-2], target.shape[-1]), mode='bilinear', align_corners=True)
         except Exception as e:
-            # print(f"Error during interpolation: {e}")
-            # print(f"Input shape: {input.shape}, Target shape: {target.shape}")
+            print(f"Error during interpolation: {e}")
+            print(f"Input shape: {input.shape}, Target shape: {target.shape}")
     
     # print(f"Final shapes - Input: {input.shape}, Target: {target.shape}")
 
