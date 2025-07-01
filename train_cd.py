@@ -139,9 +139,10 @@ if __name__ == '__main__':
             for current_step, train_data in enumerate(train_loader):
                 train_im1 = train_data['A'].to(device)
                 train_im2 = train_data['B'].to(device)
-                seg_t1 = train_data['L1'].to(device)
-                seg_t2 = train_data['L2'].to(device)
-                change = train_data['change'].to(device)
+                # Robust label extraction
+                seg_t1 = train_data['L1'].to(device) if 'L1' in train_data else train_data['L'].to(device)
+                seg_t2 = train_data['L2'].to(device) if 'L2' in train_data else train_data['L'].to(device)
+                change = train_data['change'].to(device) if 'change' in train_data else train_data['L'].to(device)
 
                 outputs = cd_model(train_im1, train_im2)
                 train_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
@@ -203,9 +204,9 @@ if __name__ == '__main__':
                     for current_step, val_data in enumerate(val_loader):
                         val_img1 = val_data['A'].to(device)
                         val_img2 = val_data['B'].to(device)
-                        seg_t1 = val_data['L1'].to(device)
-                        seg_t2 = val_data['L2'].to(device)
-                        change = val_data['change'].to(device)
+                        seg_t1 = val_data['L1'].to(device) if 'L1' in val_data else val_data['L'].to(device)
+                        seg_t2 = val_data['L2'].to(device) if 'L2' in val_data else val_data['L'].to(device)
+                        change = val_data['change'].to(device) if 'change' in val_data else val_data['L'].to(device)
 
                         outputs = cd_model(val_img1, val_img2)
                         val_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
@@ -323,9 +324,9 @@ if __name__ == '__main__':
                 for current_step, test_data in enumerate(test_loader):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
-                    seg_t1 = test_data['L1'].to(device)
-                    seg_t2 = test_data['L2'].to(device)
-                    change = test_data['change'].to(device)
+                    seg_t1 = test_data['L1'].to(device) if 'L1' in test_data else test_data['L'].to(device)
+                    seg_t2 = test_data['L2'].to(device) if 'L2' in test_data else test_data['L'].to(device)
+                    change = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
 
                     outputs = cd_model(test_img1, test_img2)
                     # Only use change head for metric and visuals
