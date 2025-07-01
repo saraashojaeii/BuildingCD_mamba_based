@@ -54,7 +54,7 @@
       "change": 2.0
     },
     "init_filters" : 16,
-    "n_classes" : 10,
+    "n_classes" : 6,
     "mode" : "AGLGF",
     "conv_mode" : "orignal_dinner",
     "local_query_model" : "orignal_dinner",
