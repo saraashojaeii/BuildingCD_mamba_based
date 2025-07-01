@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import math
 from torch import Tensor, einsum
-import torch.nn .functional as F
 from misc.torchutils import class2one_hot,simplex
 from models.darnet_help.loss_help import FocalLoss, dernet_dice_loss
 
@@ -15,6 +16,9 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
     """
     target = target.long()
     
+    # Print shapes for debugging
+    print(f"Initial shapes - Input: {input.shape}, Target: {target.shape}")
+    
     # Handle different target dimensions
     if target.dim() == 4:
         target = torch.squeeze(target, dim=1)  # N*H*W
@@ -22,22 +26,24 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
         # This is likely an RGB image that needs to be converted
         # Take only the first channel or convert to grayscale
         target = target[..., 0]  # Take first channel
-        
-    # Ensure target is 2D (H, W) for each item in batch
-    while target.dim() > 2:
-        if target.shape[-1] == 1:
-            target = target.squeeze(-1)
-        else:
-            # If we have a 3D tensor that's not [H, W, 1], reshape it
-            target = target.reshape(target.shape[0], -1)  # Flatten to [N, H*W]
+    
+    # For flattened targets, reshape them back to spatial dimensions
+    if target.dim() == 2 and target.shape[1] > 1000:  # Likely a flattened spatial target
+        # Calculate spatial dimensions - assuming square images for simplicity
+        h = w = int(math.sqrt(target.shape[1]))
+        target = target.reshape(target.shape[0], h, w)
+        print(f"Reshaped target from flattened to spatial: {target.shape}")
     
     # Now ensure spatial dimensions match for interpolation
     if input.shape[-1] != target.shape[-1] or input.shape[-2] != target.shape[-2]:
         try:
+            print(f"Interpolating input from {input.shape} to match target {target.shape}")
             input = F.interpolate(input, size=(target.shape[-2], target.shape[-1]), mode='bilinear', align_corners=True)
         except Exception as e:
             print(f"Error during interpolation: {e}")
             print(f"Input shape: {input.shape}, Target shape: {target.shape}")
+    
+    print(f"Final shapes - Input: {input.shape}, Target: {target.shape}")
 
     return F.cross_entropy(input=input, target=target, weight=weight,
                            ignore_index=ignore_index, reduction=reduction)
