@@ -36,6 +36,13 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
         target = target.reshape(target.shape[0], h, w)
         print(f"Reshaped target from flattened to spatial: {target.shape}")
     
+    # Get number of classes from input tensor
+    num_classes = input.shape[1]
+    
+    # Clamp target values to valid class range (0 to num_classes-1)
+    target = torch.clamp(target, 0, num_classes-1)
+    print(f"Clamped target values to range [0, {num_classes-1}]")
+    
     # Now ensure spatial dimensions match for interpolation
     if input.shape[-1] != target.shape[-1] or input.shape[-2] != target.shape[-2]:
         try:
@@ -66,7 +73,26 @@ class DiceLoss(nn.Module):
         if target.dim() == 4:
             target = target.squeeze(1)
         
-        target_one_hot = class2one_hot(target, self.num_classes)
+        # Handle channels-last format if needed
+        if target.dim() == 3 and target.shape[-1] == 3:
+            target = target[..., 0]  # Take first channel
+            print(f"DiceLoss: Converted target from channels-last format: {target.shape}")
+        
+        # Clamp target values to valid class range (0 to num_classes-1)
+        target = torch.clamp(target, 0, self.num_classes-1)
+        print(f"DiceLoss: Clamped target values to range [0, {self.num_classes-1}]")
+        
+        # Create one-hot encoding
+        try:
+            target_one_hot = class2one_hot(target, self.num_classes)
+        except Exception as e:
+            print(f"Error in class2one_hot: {e}")
+            print(f"Target shape: {target.shape}, min: {target.min()}, max: {target.max()}")
+            # Fallback: create one-hot encoding manually
+            b, h, w = target.shape
+            target_one_hot = torch.zeros((b, self.num_classes, h, w), device=target.device, dtype=torch.int32)
+            for c in range(self.num_classes):
+                target_one_hot[:, c, :, :] = (target == c)
         
         assert simplex(probs)
         assert simplex(target_one_hot)
@@ -195,18 +221,63 @@ class MultiClassCDLoss(nn.Module):
         self.loss_weights = loss_weights if loss_weights is not None else {"seg_t1": 1.0, "seg_t2": 1.0, "change": 1.0}
 
     def forward(self, preds, targets):
-        seg_logits_t1, seg_logits_t2, change_logits = preds
-        seg_t1 = targets["seg_t1"]
-        seg_t2 = targets["seg_t2"]
-        change = targets["change"]
-        loss_t1 = self.seg_loss_fn(seg_logits_t1, seg_t1)
-        loss_t2 = self.seg_loss_fn(seg_logits_t2, seg_t2)
-        loss_change = self.change_loss_fn(change_logits, change)
+        # Unpack predictions
+        if isinstance(preds, tuple) and len(preds) == 3:
+            seg_logits_t1, seg_logits_t2, change_logits = preds
+        else:
+            raise ValueError(f"Expected preds to be a tuple of 3 tensors, got {type(preds)}")
+        
+        # Unpack targets and ensure they're properly formatted
+        try:
+            seg_t1 = targets["seg_t1"]
+            seg_t2 = targets["seg_t2"]
+            change = targets["change"]
+            
+            # Print debug info
+            print(f"Target shapes - seg_t1: {seg_t1.shape}, seg_t2: {seg_t2.shape}, change: {change.shape}")
+            print(f"Prediction shapes - seg_t1: {seg_logits_t1.shape}, seg_t2: {seg_logits_t2.shape}, change: {change_logits.shape}")
+            
+            # Get number of classes
+            num_classes = seg_logits_t1.shape[1]
+            print(f"Number of classes: {num_classes}")
+            
+            # Process targets for segmentation (T1)
+            if seg_t1.dim() == 4 and seg_t1.shape[-1] == 3:  # Handle channels-last format
+                seg_t1 = seg_t1[..., 0]  # Take first channel
+                print(f"Converted seg_t1 from channels-last format: {seg_t1.shape}")
+            
+            # Process targets for segmentation (T2)
+            if seg_t2.dim() == 4 and seg_t2.shape[-1] == 3:  # Handle channels-last format
+                seg_t2 = seg_t2[..., 0]  # Take first channel
+                print(f"Converted seg_t2 from channels-last format: {seg_t2.shape}")
+            
+            # Process targets for change detection
+            if change.dim() == 4 and change.shape[-1] == 3:  # Handle channels-last format
+                change = change[..., 0]  # Take first channel
+                print(f"Converted change from channels-last format: {change.shape}")
+            
+            # Compute losses
+            loss_t1 = self.seg_loss_fn(seg_logits_t1, seg_t1)
+            loss_t2 = self.seg_loss_fn(seg_logits_t2, seg_t2)
+            loss_change = self.change_loss_fn(change_logits, change)
+            
+        except Exception as e:
+            print(f"Error processing targets: {e}")
+            print(f"Target keys: {targets.keys()}")
+            for k, v in targets.items():
+                if isinstance(v, torch.Tensor):
+                    print(f"  {k}: shape={v.shape}, dtype={v.dtype}, min={v.min()}, max={v.max()}")
+                else:
+                    print(f"  {k}: {type(v)}")
+            raise
+        
+        # Combine losses with weights
         total = (
             self.loss_weights["seg_t1"] * loss_t1 +
             self.loss_weights["seg_t2"] * loss_t2 +
             self.loss_weights["change"] * loss_change
         )
+        
         return total, {"seg_t1": loss_t1.item(), "seg_t2": loss_t2.item(), "change": loss_change.item()}
 
 
