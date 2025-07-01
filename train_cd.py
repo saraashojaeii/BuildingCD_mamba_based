@@ -156,7 +156,7 @@ if __name__ == '__main__':
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
                     train_loss, loss_dict = loss_fun(outputs, labels)
-                    seg_logits_t1, seg_logits_t2, change_pred = ou# Convert logits to predicted masks for logging
+                    seg_logits_t1, seg_logits_t2, change_pred = outputs
                     with torch.no_grad():
                         pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
