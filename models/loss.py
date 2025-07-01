@@ -17,7 +17,7 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
     target = target.long()
     
     # Print shapes for debugging
-    print(f"Initial shapes - Input: {input.shape}, Target: {target.shape}")
+    # print(f"Initial shapes - Input: {input.shape}, Target: {target.shape}")
     
     # Handle channels-last format (NHWC -> NCHW)
     if target.dim() == 4 and target.shape[-1] == 3:
