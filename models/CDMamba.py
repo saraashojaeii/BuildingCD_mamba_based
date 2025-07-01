@@ -190,13 +190,20 @@ class AdaptiveGate(nn.Module):
         return gate_score_n
 
 class CDMamba(nn.Module):
+    """
+    Multi-class Change Detection Mamba-based Model.
+    - Outputs segmentation for T1, T2, and (optionally) change/transition map.
+    - num_classes: number of semantic classes (not binary).
+    - If use_transition_head=True, outputs per-pixel transition logits (num_classes x num_classes channels).
+    """
 
     def __init__(
             self,
             spatial_dims: int = 3,
             init_filters: int = 16,
             in_channels: int = 1,
-            out_channels: int = 2,
+            num_classes: int = 2,  # <-- NEW: number of semantic classes
+            use_transition_head: bool = True,  # <-- NEW: output transition/change map
             conv_mode: str = "deepwise",
             local_query_model = "orignal_dinner",
             dropout_prob: float | None = None,
@@ -217,6 +224,8 @@ class CDMamba(nn.Module):
             upsample_mode: UpsampleMode | str = UpsampleMode.NONTRAINABLE,
     ):
         super().__init__()
+        self.num_classes = num_classes
+        self.use_transition_head = use_transition_head
 
         if spatial_dims not in (2, 3):
             raise ValueError("`spatial_dims` can only be 2 or 3.")
@@ -250,7 +259,28 @@ class CDMamba(nn.Module):
         self.convInit = get_conv_layer(spatial_dims, in_channels, init_filters)
         self.srcm_encoder_layers = self._make_srcm_encoder_layers()
         self.srcm_decoder_layers, self.up_samples = self._make_srcm_decoder_layers(up_mode=self.up_mode)
-        self.conv_final = self._make_final_conv(out_channels)
+        # Remove old conv_final, replaced by segmentation heads
+        # self.conv_final = self._make_final_conv(out_channels)
+
+        # --- MULTI-CLASS SEGMENTATION HEADS ---
+        # Each head outputs num_classes channels
+        self.seg_head_t1 = nn.Sequential(
+            get_norm_layer(name=self.norm, spatial_dims=self.spatial_dims, channels=self.init_filters),
+            self.act_mod,
+            get_conv_layer(self.spatial_dims, self.init_filters, self.num_classes, kernel_size=1, bias=True),
+        )
+        self.seg_head_t2 = nn.Sequential(
+            get_norm_layer(name=self.norm, spatial_dims=self.spatial_dims, channels=self.init_filters),
+            self.act_mod,
+            get_conv_layer(self.spatial_dims, self.init_filters, self.num_classes, kernel_size=1, bias=True),
+        )
+        if self.use_transition_head:
+            # Output num_classes x num_classes channels (all transitions)
+            self.change_head = nn.Sequential(
+                get_norm_layer(name=self.norm, spatial_dims=self.spatial_dims, channels=self.init_filters * 2),
+                self.act_mod,
+                get_conv_layer(self.spatial_dims, self.init_filters * 2, self.num_classes * self.num_classes, kernel_size=1, bias=True),
+            )
 
 
         self.l_gf1 = L_GF(self.channels_list[0], conv_mode=self.local_query_model, resdiual=self.resdiual, act=self.mamba_act)
@@ -349,33 +379,46 @@ class CDMamba(nn.Module):
         for i, (up, upl) in enumerate(zip(self.up_samples, self.srcm_decoder_layers)):
             x = up(x) + down_x[i + 1]
             x = upl(x)
-
-        if self.use_conv_final:
-            x = self.conv_final(x)
         return x
 
-    def forward(self, x1: torch.Tensor, x2:torch.Tensor) -> torch.Tensor:
+    def forward(self, x1: torch.Tensor, x2: torch.Tensor):
+        """
+        Returns:
+            seg_logits_t1: [B, num_classes, H, W] -- segmentation logits for T1
+            seg_logits_t2: [B, num_classes, H, W] -- segmentation logits for T2
+            change_logits: [B, num_classes*num_classes, H, W] -- transition logits (if enabled)
+        """
         b, c, h, w = x1.shape
-        x1, down_x1 = self.encode(x1)
-        x2, down_x2 = self.encode(x2)
+        # Encode both images
+        x1_latent, down_x1 = self.encode(x1)
+        x2_latent, down_x2 = self.encode(x2)
         down_x = []
-
         for i in range(len(down_x1)):
-            x1, x2 = down_x1[i], down_x2[i]
+            x1_i, x2_i = down_x1[i], down_x2[i]
             if self.diff_abs == "later":
                 if self.mode == "AGLGF":
                     if i < self.stage:
-                        x1_l, x2_l = self.l_gf[i](x1, x2)
-                        x1_g, x2_g = self.g_gf[i](x1, x2)
+                        x1_l, x2_l = self.l_gf[i](x1_i, x2_i)
+                        x1_g, x2_g = self.g_gf[i](x1_i, x2_i)
                         x1_gate = self.ag[i](x1_l, x1_g)
                         x2_gate = self.ag[i](x2_l, x2_g)
-                        x1 = x1_gate[:, 0:1].view(b, 1, 1, 1)*x1_l + x1_gate[:, 1:2].view(b, 1, 1, 1)*x1_g
-                        x2 = x2_gate[:, 0:1].view(b, 1, 1, 1)*x2_l + x2_gate[:, 1:2].view(b, 1, 1, 1)*x2_g
-                down_x.append(torch.abs(x1-x2))
+                        x1_i = x1_gate[:, 0:1].view(b, 1, 1, 1)*x1_l + x1_gate[:, 1:2].view(b, 1, 1, 1)*x1_g
+                        x2_i = x2_gate[:, 0:1].view(b, 1, 1, 1)*x2_l + x2_gate[:, 1:2].view(b, 1, 1, 1)*x2_g
+            down_x.append(torch.abs(x1_i - x2_i))
         down_x.reverse()
-
-        x = self.decode(down_x[0], down_x)
-        return x
+        # Decode change features
+        fused = self.decode(down_x[0], down_x)
+        # Also decode for T1 and T2 (for segmentation)
+        seg1 = self.decode(x1_latent, down_x1)
+        seg2 = self.decode(x2_latent, down_x2)
+        seg_logits_t1 = self.seg_head_t1(seg1)
+        seg_logits_t2 = self.seg_head_t2(seg2)
+        if self.use_transition_head:
+            # Concatenate last features for change head
+            change_logits = self.change_head(torch.cat([seg1, seg2], dim=1))
+            return seg_logits_t1, seg_logits_t2, change_logits
+        else:
+            return seg_logits_t1, seg_logits_t2
 
 if __name__ == "__main__":
     device = "cuda:2"

@@ -143,6 +143,7 @@ class SCDDataset(Dataset):
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
         img_label = torch.from_numpy(img_label)
         img_label1 = torch.from_numpy(img_label1)
+        img_label2 = torch.from_numpy(img_label2)
         # add cls label on label1
         cls_category1 = torch.unique(img_label1)
         cls_label1 = torch.zeros(7, dtype = int)

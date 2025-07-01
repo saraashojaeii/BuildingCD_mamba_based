@@ -85,6 +85,8 @@ if __name__ == '__main__':
     elif opt['model']['loss'] == 'ce1_dice2':
         loss_fun = CE1Dice2Loss(num_classes=num_classes)
     # Add other loss types if needed, e.g., for 'ce_scl'
+    elif opt['model']['loss'] == 'multi_class_cd':
+        loss_fun = MultiClassCDLoss(num_classes=num_classes)
     # elif opt['model']['loss'] == 'ce_scl':
     #     loss_fun = CEDiceLoss(num_classes=num_classes) # Or a specific SCL loss class
     else:
@@ -118,6 +120,7 @@ if __name__ == '__main__':
     #################
     if opt['phase'] == 'train':
         best_mF1 = 0.0
+        epoch_losses = []
         for current_epoch in range(0, opt['train']['n_epoch']):
             print("......Begin Training......")
             metric.clear()
@@ -131,32 +134,35 @@ if __name__ == '__main__':
             message = 'lr: %0.7f\n \n' % optimer.param_groups[0]['lr']
             logger.info(message)
 
+            epoch_loss = 0
+
             for current_step, train_data in enumerate(train_loader):
                 train_im1 = train_data['A'].to(device)
                 train_im2 = train_data['B'].to(device)
-                gt = train_data['L'].to(device).long()
-                if gt.ndim == 4:
-                    gt = gt.squeeze(1)  # Shape: [B, H, W]
+                seg_t1 = train_data['L1'].to(device)
+                seg_t2 = train_data['L2'].to(device)
+                change = train_data['change'].to(device)
 
-                pred_img = cd_model(train_im1, train_im2)
-                
-
-                # Prediction and metric update
-                G_pred = torch.argmax(pred_img.detach(), dim=1)
-                gt_np = gt.detach().cpu().numpy()
-                pred_np = G_pred.cpu().numpy()
-
-                # Debug print (only once)
-                if current_step == 0 and current_epoch == 0:
-                    print("DEBUG: Unique ground truth labels:", np.unique(gt_np))
-                    print("DEBUG: Unique predictions:", np.unique(pred_np))
-                    print("DEBUG: Metric num_classes:", metric.n_class)
-
-                train_loss = loss_fun(pred_img, gt)
+                outputs = cd_model(train_im1, train_im2)
+                train_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
                 optimer.zero_grad()
                 train_loss.backward()
                 optimer.step()
                 log_dict['loss'] = train_loss.item()
+                log_dict['loss_seg_t1'] = loss_dict['seg_t1']
+                log_dict['loss_seg_t2'] = loss_dict['seg_t2']
+                log_dict['loss_change'] = loss_dict['change']
+                epoch_loss += train_loss.item()
+
+                # For metric, use change prediction (transition map)
+                change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
+                G_pred = torch.argmax(change_pred.detach(), dim=1)
+                gt_np = change.detach().cpu().numpy()
+                pred_np = G_pred.cpu().numpy()
+
+                if current_step % 100 == 0:
+                    print("DEBUG: Unique predictions:", np.unique(pred_np))
+                    print("DEBUG: Metric num_classes:", metric.n_class)
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
@@ -172,8 +178,10 @@ if __name__ == '__main__':
             scores = metric.get_scores()
             epoch_acc = scores['mf1']
             log_dict['epoch_acc'] = epoch_acc.item()
+            epoch_losses.append(epoch_loss / len(train_loader))
             for k, v in scores.items():
                 log_dict[k] = v
+
             message = '[Training CD (epoch summary)]: epoch: [%d/%d]. epoch_mF1=%.5f \n' % (
                 current_epoch, opt['train']['n_epoch'] - 1, log_dict['epoch_acc'])
             for k, v in log_dict.items():
@@ -195,14 +203,20 @@ if __name__ == '__main__':
                     for current_step, val_data in enumerate(val_loader):
                         val_img1 = val_data['A'].to(device)
                         val_img2 = val_data['B'].to(device)
-                        pred_img = cd_model(val_img1, val_img2)
-                        gt = val_data['L'].to(device).long()
-                        val_loss = loss_fun(pred_img, gt)
+                        seg_t1 = val_data['L1'].to(device)
+                        seg_t2 = val_data['L2'].to(device)
+                        change = val_data['change'].to(device)
+
+                        outputs = cd_model(val_img1, val_img2)
+                        val_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
                         log_dict['loss'] = val_loss.item()
-                        #pred score
-                        G_pred = pred_img.detach()
-                        G_pred = torch.argmax(G_pred, dim=1)
-                        current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=gt.detach().cpu().numpy())
+                        log_dict['loss_seg_t1'] = loss_dict['seg_t1']
+                        log_dict['loss_seg_t2'] = loss_dict['seg_t2']
+                        log_dict['loss_change'] = loss_dict['change']
+                        # pred score
+                        change_pred = outputs[2]
+                        G_pred = torch.argmax(change_pred.detach(), dim=1)
+                        current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=change.detach().cpu().numpy())
                         log_dict['running_acc'] = current_score.item()
 
                         # log running batch status for val data
@@ -282,6 +296,7 @@ if __name__ == '__main__':
 
             get_scheduler(optimizer=optimer, args=opt['train']).step()
         logger.info('End of training.')
+        np.save(os.path.join(opt['path_cd']['result'], 'train_losses.npy'), np.array(epoch_losses))
 
     else:
         logger.info('Begin Model Evaluation (testing).')
@@ -308,13 +323,15 @@ if __name__ == '__main__':
                 for current_step, test_data in enumerate(test_loader):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
-                    pred_img = cd_model(test_img1, test_img2)
-                    gt = test_data['L'].to(device).long()
+                    seg_t1 = test_data['L1'].to(device)
+                    seg_t2 = test_data['L2'].to(device)
+                    change = test_data['change'].to(device)
 
-                    # pred score
-                    G_pred = pred_img.detach()
-                    G_pred = torch.argmax(G_pred, dim=1)
-                    current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=gt.detach().cpu().numpy())
+                    outputs = cd_model(test_img1, test_img2)
+                    # Only use change head for metric and visuals
+                    change_pred = outputs[2]
+                    G_pred = torch.argmax(change_pred.detach(), dim=1)
+                    current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=change.detach().cpu().numpy())
                     log_dict['running_acc'] = current_score.item()
 
                     logs = log_dict
@@ -322,10 +339,10 @@ if __name__ == '__main__':
                               (current_step, len(test_loader), logs['running_acc'])
                     logger_test.info(message)
 
-                    # Vissuals
+                    # Visuals
                     out_dict = OrderedDict()
-                    out_dict['pred_cm'] = torch.argmax(pred_img, dim=1, keepdim=False)
-                    out_dict['gt_cm'] = gt
+                    out_dict['pred_cm'] = G_pred
+                    out_dict['gt_cm'] = change
                     visuals = out_dict
 
                     img_mode = 'single'

@@ -136,6 +136,52 @@ class CE1Dice2Loss(nn.Module):
 # For now, if 'ce_scl' is chosen, it would need to be mapped to CEDiceLoss or a new SCL specific class.
 
 
+class MultiClassCDLoss(nn.Module):
+    """
+    Multi-class Change Detection Loss.
+    Computes segmentation loss for T1, T2, and transition/change head.
+    - seg_loss: loss function for segmentation ("ce", "dice", "cedice")
+    - change_loss: loss function for transition/change ("ce", "cedice")
+    - loss_weights: dict with weights for each head ("seg_t1", "seg_t2", "change")
+    Usage:
+        loss_fn = MultiClassCDLoss(num_classes, seg_loss="cedice", change_loss="ce")
+        loss = loss_fn(preds, targets)
+        # preds: (seg_logits_t1, seg_logits_t2, change_logits)
+        # targets: dict with keys: "seg_t1", "seg_t2", "change"
+    """
+    def __init__(self, num_classes, seg_loss="cedice", change_loss="ce", loss_weights=None):
+        super().__init__()
+        self.num_classes = num_classes
+        if seg_loss == "ce":
+            self.seg_loss_fn = cross_entropy_loss_fn
+        elif seg_loss == "dice":
+            self.seg_loss_fn = DiceLoss(num_classes)
+        else:
+            self.seg_loss_fn = CEDiceLoss(num_classes)
+
+        if change_loss == "ce":
+            self.change_loss_fn = cross_entropy_loss_fn
+        else:
+            self.change_loss_fn = CEDiceLoss(num_classes*num_classes)
+
+        self.loss_weights = loss_weights or {"seg_t1": 1.0, "seg_t2": 1.0, "change": 1.0}
+
+    def forward(self, preds, targets):
+        seg_logits_t1, seg_logits_t2, change_logits = preds
+        seg_t1 = targets["seg_t1"]
+        seg_t2 = targets["seg_t2"]
+        change = targets["change"]
+        loss_t1 = self.seg_loss_fn(seg_logits_t1, seg_t1)
+        loss_t2 = self.seg_loss_fn(seg_logits_t2, seg_t2)
+        loss_change = self.change_loss_fn(change_logits, change)
+        total = (
+            self.loss_weights["seg_t1"] * loss_t1 +
+            self.loss_weights["seg_t2"] * loss_t2 +
+            self.loss_weights["change"] * loss_change
+        )
+        return total, {"seg_t1": loss_t1.item(), "seg_t2": loss_t2.item(), "change": loss_change.item()}
+
+
 def weighted_BCE_logits(logit_pixel, truth_pixel, weight_pos=0.25, weight_neg=0.75):
     logit = logit_pixel.view(-1)
     truth = truth_pixel.view(-1)
