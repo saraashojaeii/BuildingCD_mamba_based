@@ -14,10 +14,30 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
     :return: torch.Tensor [0]
     """
     target = target.long()
+    
+    # Handle different target dimensions
     if target.dim() == 4:
-        target = torch.squeeze(target, dim=1)
-    if input.shape[-1] != target.shape[-1]: # Ensure spatial dimensions match
-        input = F.interpolate(input, size=target.shape[1:], mode='bilinear',align_corners=True)
+        target = torch.squeeze(target, dim=1)  # N*H*W
+    elif target.dim() > 2 and target.shape[-1] == 3:  # If target has shape [..., 3] at the end
+        # This is likely an RGB image that needs to be converted
+        # Take only the first channel or convert to grayscale
+        target = target[..., 0]  # Take first channel
+        
+    # Ensure target is 2D (H, W) for each item in batch
+    while target.dim() > 2:
+        if target.shape[-1] == 1:
+            target = target.squeeze(-1)
+        else:
+            # If we have a 3D tensor that's not [H, W, 1], reshape it
+            target = target.reshape(target.shape[0], -1)  # Flatten to [N, H*W]
+    
+    # Now ensure spatial dimensions match for interpolation
+    if input.shape[-1] != target.shape[-1] or input.shape[-2] != target.shape[-2]:
+        try:
+            input = F.interpolate(input, size=(target.shape[-2], target.shape[-1]), mode='bilinear', align_corners=True)
+        except Exception as e:
+            print(f"Error during interpolation: {e}")
+            print(f"Input shape: {input.shape}, Target shape: {target.shape}")
 
     return F.cross_entropy(input=input, target=target, weight=weight,
                            ignore_index=ignore_index, reduction=reduction)
