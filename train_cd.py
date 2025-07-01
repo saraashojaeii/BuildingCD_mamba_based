@@ -156,7 +156,23 @@ if __name__ == '__main__':
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
                     train_loss, loss_dict = loss_fun(outputs, labels)
-                    seg_logits_t1, seg_logits_t2, change_pred = outputs
+                    seg_logits_t1, seg_logits_t2, change_pred = ou# Convert logits to predicted masks for logging
+                    with torch.no_grad():
+                        pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
+                        pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
+                        pred_change = torch.argmax(change_pred, dim=1)
+                    
+                    # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
+                    if current_step == 0 and current_epoch % 1 == 0:
+                        wandb.log({
+                            "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy(), caption="Pred Seg T1 (multi-class)")],
+                            "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy(), caption="Pred Seg T2 (multi-class)")],
+                            "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy(), caption="Pred Change (multi-class)")],
+                            "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy(), caption="GT Seg T1 (multi-class)")],
+                            "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy(), caption="GT Seg T2 (multi-class)")],
+                            "train/gt_change": [wandb.Image(change[0].cpu().numpy(), caption="GT Change (multi-class)")],
+                            "global_step": current_epoch * len(train_loader) + current_step
+                        })
                 else:
                     # Assumes binary loss on the change prediction head
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
@@ -402,7 +418,8 @@ if __name__ == '__main__':
                     # Only use change head for metric and visuals
                     change_pred = outputs[2]
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
-                    current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=change.detach().cpu().numpy())
+                    gt = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
+                    current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=gt.detach().cpu().numpy())
                     log_dict['running_acc'] = current_score.item()
 
                     logs = log_dict
@@ -413,7 +430,7 @@ if __name__ == '__main__':
                     # Visuals
                     out_dict = OrderedDict()
                     out_dict['pred_cm'] = G_pred
-                    out_dict['gt_cm'] = change
+                    out_dict['gt_cm'] = gt
                     visuals = out_dict
 
                     img_mode = 'single'
