@@ -217,7 +217,9 @@ if __name__ == '__main__':
                 from_class = G_pred // n_classes
                 to_class = G_pred % n_classes
                 binary_pred = (from_class != to_class).int()
-
+                
+                # Convert ground truth to binary (0 = no change, 1 = change)
+                # Assuming 'change' contains class transition IDs or is already binary
                 gt_np = (change.detach().cpu().numpy() > 0).astype(np.uint8)
                 pred_np = binary_pred.cpu().numpy()
 
@@ -300,7 +302,9 @@ if __name__ == '__main__':
                         to_class = G_pred % n_classes
                         binary_pred = (from_class != to_class).int()
 
-                        gt_np = (change.detach().cpu().numpy() > 0).astype(np.uint8)
+                        # Convert ground truth to binary (0 = no change, 1 = change)
+                        gt_binary = (change > 0).int()
+                        gt_np = gt_binary.detach().cpu().numpy().astype(np.uint8)
                         pred_np = binary_pred.cpu().numpy()
                         current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                         log_dict['running_acc'] = current_score.item()
@@ -316,8 +320,18 @@ if __name__ == '__main__':
 
                             #visual
                             out_dict = OrderedDict()
-                            out_dict['pred_cm'] = torch.argmax(change_pred, dim=1, keepdim=False)
-                            out_dict['gt_cm'] = gt
+                            # Convert prediction to binary change mask for visualization
+                            G_pred = torch.argmax(change_pred, dim=1, keepdim=False)
+                            n_classes = opt['model']['n_classes']
+                            from_class = G_pred // n_classes
+                            to_class = G_pred % n_classes
+                            binary_pred = (from_class != to_class).int()
+                            
+                            # Convert ground truth to binary for visualization
+                            gt_binary = (change > 0).int()
+                            
+                            out_dict['pred_cm'] = binary_pred
+                            out_dict['gt_cm'] = gt_binary
                             visuals = out_dict
 
                             img_mode = "grid"
@@ -416,10 +430,23 @@ if __name__ == '__main__':
 
                     outputs = cd_model(test_img1, test_img2)
                     # Only use change head for metric and visuals
-                    change_pred = outputs[2]
+                    change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
+                    
+                    # Convert prediction to binary change mask
+                    n_classes = opt['model']['n_classes']
+                    from_class = G_pred // n_classes
+                    to_class = G_pred % n_classes
+                    binary_pred = (from_class != to_class).int()
+                    
+                    # Get ground truth
                     gt = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
-                    current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=gt.detach().cpu().numpy())
+                    
+                    # Convert ground truth to binary for metrics
+                    gt_binary = (gt > 0).int()
+                    
+                    # Update confusion matrix with binary predictions
+                    current_score = metric.update_cm(pr=binary_pred.cpu().numpy(), gt=gt_binary.detach().cpu().numpy())
                     log_dict['running_acc'] = current_score.item()
 
                     logs = log_dict
@@ -429,8 +456,8 @@ if __name__ == '__main__':
 
                     # Visuals
                     out_dict = OrderedDict()
-                    out_dict['pred_cm'] = G_pred
-                    out_dict['gt_cm'] = gt
+                    out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
+                    out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
                     visuals = out_dict
 
                     img_mode = 'single'
