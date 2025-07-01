@@ -164,8 +164,6 @@ if __name__ == '__main__':
                     loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
                     seg_logits_t1 = seg_logits_t2 = torch.zeros_like(change_pred)  # dummy for logging
                 
-                # ... rest of your code ...
-                
                 # Convert logits to predicted masks for logging
                 with torch.no_grad():
                     pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
@@ -185,11 +183,6 @@ if __name__ == '__main__':
                     })
                 
                 # ... rest of your code ...
-                    # Assumes binary loss on the change prediction head
-                    change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
-                    train_loss = loss_fun(change_pred, change)
-                    # Create a dummy loss_dict for logging consistency
-                    loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
                 optimer.zero_grad()
                 train_loss.backward()
                 optimer.step()
