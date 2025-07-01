@@ -278,7 +278,7 @@ if __name__ == '__main__':
 
                             #visual
                             out_dict = OrderedDict()
-                            out_dict['pred_cm'] = torch.argmax(pred_img, dim=1, keepdim=False)
+                            out_dict['pred_cm'] = torch.argmax(change_pred, dim=1, keepdim=False)
                             out_dict['gt_cm'] = gt
                             visuals = out_dict
 
