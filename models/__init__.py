@@ -26,7 +26,7 @@ def create_CD_model(opt):
     from models.CDMamba import CDMamba as cdmamba
 
     if opt['model']['name'] == 'cdmamba':
-        cd_model = cdmamba(spatial_dims=opt['model']['spatial_dims'], in_channels=opt['model']['in_channels'], init_filters=opt['model']['init_filters'], out_channels=opt['model']['n_classes'],
+        cd_model = cdmamba(spatial_dims=opt['model']['spatial_dims'], in_channels=opt['model']['in_channels'], init_filters=opt['model']['init_filters'], num_classes=opt['model']['n_classes'],
                               mode=opt['model']['mode'], conv_mode=opt['model']['conv_mode'], up_mode=opt['model']['up_mode'], up_conv_mode=opt['model']['up_conv_mode'], norm=opt['model']['norm'],
                               blocks_down=opt['model']['blocks_down'], blocks_up=opt['model']['blocks_up'], resdiual=opt['model']['resdiual'], diff_abs=opt['model']['diff_abs'], stage=opt['model']['stage'],
                               mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
