@@ -202,7 +202,7 @@ class CDMamba(nn.Module):
             spatial_dims: int = 3,
             init_filters: int = 16,
             in_channels: int = 1,
-            num_classes: int = 2,  # <-- NEW: number of semantic classes
+            num_classes: int = 7,  # <-- NEW: number of semantic classes
             use_transition_head: bool = True,  # <-- NEW: output transition/change map
             conv_mode: str = "deepwise",
             local_query_model = "orignal_dinner",
@@ -377,7 +377,13 @@ class CDMamba(nn.Module):
 
     def decode(self, x: torch.Tensor, down_x: list[torch.Tensor]) -> torch.Tensor:
         for i, (up, upl) in enumerate(zip(self.up_samples, self.srcm_decoder_layers)):
-            x = up(x) + down_x[i + 1]
+            x_up = up(x)
+            # Ensure spatial dimensions match for skip connection
+            target_size = down_x[i + 1].shape[2:]
+            if x_up.shape[2:] != target_size:
+                x_up = F.interpolate(x_up, size=target_size, mode='bilinear', align_corners=False)
+
+            x = x_up + down_x[i + 1]
             x = upl(x)
         return x
 
