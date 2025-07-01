@@ -146,21 +146,41 @@ class SCDDataset(Dataset):
         img_label2 = torch.from_numpy(img_label2)
         # add cls label on label1
         cls_category1 = torch.unique(img_label1)
-        cls_label1 = torch.zeros(7, dtype = int)
+        # Get the number of classes from the config or use a default value
+        num_classes = 7  # This should match your model's num_classes
+        cls_label1 = torch.zeros(num_classes, dtype=int)
+        
+        # Normalize labels to be within valid range
         for index in cls_category1:
-            cls_label1[int(index)] = 1
+            if int(index) < num_classes:
+                cls_label1[int(index)] = 1
+            else:
+                print(f"Warning: Label index {int(index)} exceeds number of classes {num_classes}. Skipping.")
 
         img_label2 = torch.from_numpy(img_label2)
         # add cls label on label2
         cls_category2 = torch.unique(img_label2)
-        cls_label2 = torch.zeros(7, dtype=int)
+        # Get the number of classes from the config or use a default value
+        num_classes = 7  # This should match your model's num_classes
+        cls_label2 = torch.zeros(num_classes, dtype=int)
+        
+        # Normalize labels to be within valid range
         for index in cls_category2:
-            cls_label2[int(index)] = 1
+            if int(index) < num_classes:
+                cls_label2[int(index)] = 1
+            else:
+                print(f"Warning: Label index {int(index)} exceeds number of classes {num_classes}. Skipping.")
 
         if img_label.dim() > 2:
             img_label = img_label[0]
             img_label1 = img_label1[0]
             img_label2 = img_label2[0]
+        
+        # Normalize label values to be within valid range
+        max_class_id = 6  # For 7 classes (0-6)
+        img_label = torch.clamp(img_label, 0, max_class_id)
+        img_label1 = torch.clamp(img_label1, 0, max_class_id)
+        img_label2 = torch.clamp(img_label2, 0, max_class_id)
 
         return {'A':img_A, 'B':img_B, 'L':img_label, 'L1':img_label1, 'L2':img_label2,
                 'Index':index, 'name':name, 'cls1':cls_label1, 'cls2':cls_label2}
