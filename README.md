@@ -109,6 +109,11 @@ conda activate cd_mamba
 ```shell
 pip install -r requirements.txt
 ```
+
+```shell
+pip uninstall opencv-python opencv-python-headless opencv-contrib-python -y
+pip install opencv-python-headless==4.8.0.76
+```
 **Note**: Please refer to https://github.com/hustvl/Vim or https://blog.csdn.net/weixin_45667052/article/details/136311600 when installing mamba.
 
 
