@@ -156,6 +156,7 @@ if __name__ == '__main__':
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
                     train_loss, loss_dict = loss_fun(outputs, labels)
+                    seg_logits_t1, seg_logits_t2, change_pred = outputs
                 else:
                     # Assumes binary loss on the change prediction head
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
