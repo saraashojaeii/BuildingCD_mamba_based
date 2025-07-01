@@ -156,8 +156,6 @@ class SCDDataset(Dataset):
                 cls_label1[int(index)] = 1
             else:
                 print(f"Warning: Label index {int(index)} exceeds number of classes {num_classes}. Skipping.")
-
-        img_label2 = torch.from_numpy(img_label2)
         # add cls label on label2
         cls_category2 = torch.unique(img_label2)
         # Get the number of classes from the config or use a default value
