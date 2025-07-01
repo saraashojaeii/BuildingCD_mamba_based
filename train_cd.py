@@ -156,7 +156,39 @@ if __name__ == '__main__':
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
                     train_loss, loss_dict = loss_fun(outputs, labels)
+                else:if isinstance(loss_fun, MultiClassCDLoss):
+                    labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
+                    train_loss, loss_dict = loss_fun(outputs, labels)
+                    seg_logits_t1, seg_logits_t2, change_pred = outputs
                 else:
+                    # Assumes binary loss on the change prediction head
+                    change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
+                    train_loss = loss_fun(change_pred, change)
+                    # Create a dummy loss_dict for logging consistency
+                    loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
+                    seg_logits_t1 = seg_logits_t2 = torch.zeros_like(change_pred)  # dummy for logging
+                
+                # ... rest of your code ...
+                
+                # Convert logits to predicted masks for logging
+                with torch.no_grad():
+                    pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
+                    pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
+                    pred_change = torch.argmax(change_pred, dim=1)
+                
+                # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
+                if current_step == 0 and current_epoch % 1 == 0:
+                    wandb.log({
+                        "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy(), caption="Pred Seg T1")],
+                        "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy(), caption="Pred Seg T2")],
+                        "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy(), caption="Pred Change")],
+                        "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy(), caption="GT Seg T1")],
+                        "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy(), caption="GT Seg T2")],
+                        "train/gt_change": [wandb.Image(change[0].cpu().numpy(), caption="GT Change")],
+                        "global_step": current_epoch * len(train_loader) + current_step
+                    })
+                
+                # ... rest of your code ...
                     # Assumes binary loss on the change prediction head
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
                     train_loss = loss_fun(change_pred, change)
