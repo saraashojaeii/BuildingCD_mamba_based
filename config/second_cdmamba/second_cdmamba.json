@@ -1,14 +1,13 @@
 {
   "name": "SECOND-train-CDMamba",
-  "phase": "test", //train or test
+  "phase": "train",
   "gpu_ids":[0],
 
-  "path_cd": {//set cd path
+  "path_cd": {
     "log": "logs",
     "result": "results",
     "checkpoint": "checkpoint",
     "resume_state": null
-//    "resume_state": "xxx/best_cd_model"
   },
 
   "datasets": {
@@ -44,7 +43,7 @@
 
   "model" : {
     "name" : "cdmamba",
-    "loss" : "ce_dice",
+    "loss" : "multi_class_cd",
     "init_filters" : 16,
     "n_classes" : 10,
     "mode" : "AGLGF",

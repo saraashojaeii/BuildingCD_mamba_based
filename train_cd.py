@@ -145,7 +145,16 @@ if __name__ == '__main__':
                 change = train_data['change'].to(device) if 'change' in train_data else train_data['L'].to(device)
 
                 outputs = cd_model(train_im1, train_im2)
-                train_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
+
+                if isinstance(loss_fun, MultiClassCDLoss):
+                    labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
+                    train_loss, loss_dict = loss_fun(outputs, labels)
+                else:
+                    # Assumes binary loss on the change prediction head
+                    change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
+                    train_loss = loss_fun(change_pred, change)
+                    # Create a dummy loss_dict for logging consistency
+                    loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
                 optimer.zero_grad()
                 train_loss.backward()
                 optimer.step()
@@ -209,7 +218,15 @@ if __name__ == '__main__':
                         change = val_data['change'].to(device) if 'change' in val_data else val_data['L'].to(device)
 
                         outputs = cd_model(val_img1, val_img2)
-                        val_loss, loss_dict = loss_fun(outputs, {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change})
+
+                        if isinstance(loss_fun, MultiClassCDLoss):
+                            labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
+                            val_loss, loss_dict = loss_fun(outputs, labels)
+                        else:
+                            # Assumes binary loss on the change prediction head
+                            change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
+                            val_loss = loss_fun(change_pred, change)
+                            loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                         log_dict['loss'] = val_loss.item()
                         log_dict['loss_seg_t1'] = loss_dict['seg_t1']
                         log_dict['loss_seg_t2'] = loss_dict['seg_t2']
