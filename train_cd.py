@@ -93,7 +93,7 @@ if __name__ == '__main__':
         loss_fun = CE1Dice2Loss(num_classes=num_classes)
     # Add other loss types if needed, e.g., for 'ce_scl'
     elif opt['model']['loss'] == 'multi_class_cd':
-        loss_fun = MultiClassCDLoss(num_classes=num_classes)
+        loss_fun = MultiClassCDLoss(num_classes=num_classes, loss_weights=opt['model'].get('loss_weights'))
     # elif opt['model']['loss'] == 'ce_scl':
     #     loss_fun = CEDiceLoss(num_classes=num_classes) # Or a specific SCL loss class
     else:

@@ -164,7 +164,7 @@ class MultiClassCDLoss(nn.Module):
         else:
             self.change_loss_fn = CEDiceLoss(num_classes*num_classes)
 
-        self.loss_weights = loss_weights or {"seg_t1": 1.0, "seg_t2": 1.0, "change": 1.0}
+        self.loss_weights = loss_weights if loss_weights is not None else {"seg_t1": 1.0, "seg_t2": 1.0, "change": 1.0}
 
     def forward(self, preds, targets):
         seg_logits_t1, seg_logits_t2, change_logits = preds
