@@ -19,13 +19,15 @@ def cross_entropy_loss_fn(input, target, weight=None, reduction='mean',ignore_in
     # Print shapes for debugging
     print(f"Initial shapes - Input: {input.shape}, Target: {target.shape}")
     
-    # Handle different target dimensions
-    if target.dim() == 4:
+    # Handle channels-last format (NHWC -> NCHW)
+    if target.dim() == 4 and target.shape[-1] == 3:
+        # This is likely an RGB image in channels-last format
+        # Take only the first channel and permute to channels-first
+        target = target[..., 0]  # Take first channel -> [N, H, W]
+        print(f"Converted target from NHWC to NHW: {target.shape}")
+    # Handle standard channels-first format
+    elif target.dim() == 4:
         target = torch.squeeze(target, dim=1)  # N*H*W
-    elif target.dim() > 2 and target.shape[-1] == 3:  # If target has shape [..., 3] at the end
-        # This is likely an RGB image that needs to be converted
-        # Take only the first channel or convert to grayscale
-        target = target[..., 0]  # Take first channel
     
     # For flattened targets, reshape them back to spatial dimensions
     if target.dim() == 2 and target.shape[1] > 1000:  # Likely a flattened spatial target
