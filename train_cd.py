@@ -13,6 +13,7 @@ from models.loss import *
 from collections import OrderedDict
 import core.metrics as Metrics
 from misc.torchutils import get_scheduler, save_network
+import wandb
 
 
 if __name__ == '__main__':
@@ -41,6 +42,12 @@ if __name__ == '__main__':
                         level=logging.INFO)
     logger = logging.getLogger('base')
     logger.info(Logger.dict2str(opt))
+
+    # Initialize wandb
+    if opt.get('wandb') and opt['wandb'].get('project'):
+        wandb.init(project=opt['wandb']['project'], config=opt)
+    else:
+        wandb.init(mode="disabled")
 
     #dataset
     for phase, dataset_opt in opt['datasets'].items(): #train train{}
@@ -183,6 +190,7 @@ if __name__ == '__main__':
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
+                wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
 
                 # Logging
                 if current_step % opt['train']['train_print_iter'] == 0:
@@ -198,6 +206,13 @@ if __name__ == '__main__':
             epoch_losses.append(epoch_loss / len(train_loader))
             for k, v in scores.items():
                 log_dict[k] = v
+
+            # Log training summary to wandb
+            wandb.log({
+                'epoch': current_epoch, 
+                'train_epoch_loss': epoch_loss / len(train_loader), 
+                'train_epoch_mF1': log_dict['epoch_acc']
+            })
 
             message = '[Training CD (epoch summary)]: epoch: [%d/%d]. epoch_mF1=%.5f \n' % (
                 current_epoch, opt['train']['n_epoch'] - 1, log_dict['epoch_acc'])
@@ -251,6 +266,7 @@ if __name__ == '__main__':
                         pred_np = binary_pred.cpu().numpy()
                         current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                         log_dict['running_acc'] = current_score.item()
+                        wandb.log({'val_loss': val_loss.item(), 'val_running_acc': current_score.item()})
 
                         # log running batch status for val data
                         if current_step % opt['train']['val_print_iter'] == 0:
