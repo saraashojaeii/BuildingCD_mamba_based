@@ -113,7 +113,7 @@ if __name__ == '__main__':
     cd_model.to(device)
     if len(opt['gpu_ids']) > 1:
         cd_model = nn.DataParallel(cd_model)
-    metric = ConfuseMatrixMeter(n_class=10)
+    metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection (change/no-change)
     log_dict = OrderedDict()
     #################
     # Training loop #
@@ -164,14 +164,21 @@ if __name__ == '__main__':
                 log_dict['loss_change'] = loss_dict['change']
                 epoch_loss += train_loss.item()
 
-                # For metric, use change prediction (transition map)
+                # For metric, convert transition prediction to binary change map
                 change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
                 G_pred = torch.argmax(change_pred.detach(), dim=1)
-                gt_np = change.detach().cpu().numpy()
-                pred_np = G_pred.cpu().numpy()
+
+                n_classes = opt['model']['n_classes']
+                from_class = G_pred // n_classes
+                to_class = G_pred % n_classes
+                binary_pred = (from_class != to_class).int()
+
+                gt_np = (change.detach().cpu().numpy() > 0).astype(np.uint8)
+                pred_np = binary_pred.cpu().numpy()
 
                 if current_step % 100 == 0:
-                    print("DEBUG: Unique predictions:", np.unique(pred_np))
+                    print("DEBUG: Unique predictions (binary):", np.unique(pred_np))
+                    print("DEBUG: Unique GT (binary):", np.unique(gt_np))
                     print("DEBUG: Metric num_classes:", metric.n_class)
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
@@ -231,10 +238,18 @@ if __name__ == '__main__':
                         log_dict['loss_seg_t1'] = loss_dict['seg_t1']
                         log_dict['loss_seg_t2'] = loss_dict['seg_t2']
                         log_dict['loss_change'] = loss_dict['change']
-                        # pred score
-                        change_pred = outputs[2]
+                        # For metric, convert transition prediction to binary change map
+                        change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
                         G_pred = torch.argmax(change_pred.detach(), dim=1)
-                        current_score = metric.update_cm(pr=G_pred.cpu().numpy(), gt=change.detach().cpu().numpy())
+
+                        n_classes = opt['model']['n_classes']
+                        from_class = G_pred // n_classes
+                        to_class = G_pred % n_classes
+                        binary_pred = (from_class != to_class).int()
+
+                        gt_np = (change.detach().cpu().numpy() > 0).astype(np.uint8)
+                        pred_np = binary_pred.cpu().numpy()
+                        current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                         log_dict['running_acc'] = current_score.item()
 
                         # log running batch status for val data
