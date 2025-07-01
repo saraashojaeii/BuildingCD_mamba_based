@@ -415,6 +415,8 @@ class CDMamba(nn.Module):
         # Decode change features
         fused = self.decode(down_x[0], down_x)
         # Also decode for T1 and T2 (for segmentation)
+        down_x1.reverse()
+        down_x2.reverse()
         seg1 = self.decode(x1_latent, down_x1)
         seg2 = self.decode(x2_latent, down_x2)
         seg_logits_t1 = self.seg_head_t1(seg1)
