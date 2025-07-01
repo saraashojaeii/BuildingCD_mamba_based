@@ -54,20 +54,20 @@ if __name__ == '__main__':
         #print(" phase is {}, dataopt is {}".format(phase, dataset_opt))
         if phase == 'train' and args.phase != 'test':
             print("Creat [train] change-detection dataloader")
-            train_set = Data.create_cd_dataset(dataset_opt=dataset_opt, phase=phase)
+            train_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase=phase)
             train_loader = Data.create_cd_dataloader(train_set, dataset_opt, phase)
             opt['len_train_dataloader'] = len(train_loader)
 
         elif phase == 'val' and args.phase != 'test':
             print("Creat [val] change-detection dataloader")
-            val_set = Data.create_cd_dataset(dataset_opt=dataset_opt, phase=phase)
+            val_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase=phase)
             val_loader = Data.create_cd_dataloader(val_set, dataset_opt, phase)
             opt['len_val_dataloader'] = len(val_loader)
 
         # elif phase == 'test' and args.phase == 'test':
         elif phase == 'test':
             print("Creat [test] change-detection dataloader")
-            test_set = Data.create_cd_dataset(dataset_opt=dataset_opt, phase=phase)
+            test_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase=phase)
             test_loader = Data.create_cd_dataloader(test_set, dataset_opt, phase)
             opt['len_test_dataloader'] = len(test_loader)
 
