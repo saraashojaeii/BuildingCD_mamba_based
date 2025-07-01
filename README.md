@@ -126,8 +126,8 @@ pip install opencv-python-headless==4.8.0.76
 You can download or clone the CDMamba repository.
 
 ```shell
-git clone git@github.com:zmoka-zht/CDMamba.git
-cd CDMamba
+git clone git@github.com:saraashojaeii/BuildingCD_mamba_based.git
+cd BuildingCD_mamba_based
 ```
 
 ## Dataset Preparation
