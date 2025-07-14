@@ -165,12 +165,12 @@ if __name__ == '__main__':
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                     if current_step == 0 and current_epoch % 1 == 0:
                         wandb.log({
-                            "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy(), caption="Pred Seg T1 (multi-class)")],
-                            "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy(), caption="Pred Seg T2 (multi-class)")],
-                            "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy(), caption="Pred Change (multi-class)")],
-                            "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy(), caption="GT Seg T1 (multi-class)")],
-                            "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy(), caption="GT Seg T2 (multi-class)")],
-                            "train/gt_change": [wandb.Image(change[0].cpu().numpy(), caption="GT Change (multi-class)")],
+                            "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy()*255, caption="Pred Seg T1 (multi-class)")],
+                            "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy()*255, caption="Pred Seg T2 (multi-class)")],
+                            "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy()*255, caption="Pred Change (multi-class)")],
+                            "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy()*255, caption="GT Seg T1 (multi-class)")],
+                            "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy()*255, caption="GT Seg T2 (multi-class)")],
+                            "train/gt_change": [wandb.Image(change[0].cpu().numpy()*255, caption="GT Change (multi-class)")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
                 else:
@@ -190,12 +190,12 @@ if __name__ == '__main__':
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0:
                     wandb.log({
-                        "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy(), caption="Pred Seg T1")],
-                        "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy(), caption="Pred Seg T2")],
-                        "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy(), caption="Pred Change")],
-                        "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy(), caption="GT Seg T1")],
-                        "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy(), caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(change[0].cpu().numpy(), caption="GT Change")],
+                        "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy()*255, caption="Pred Seg T1")],
+                        "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy()*255, caption="Pred Seg T2")],
+                        "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy()*255, caption="Pred Change")],
+                        "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy()*255, caption="GT Seg T1")],
+                        "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy()*255, caption="GT Seg T2")],
+                        "train/gt_change": [wandb.Image(change[0].cpu().numpy()*255, caption="GT Change")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
@@ -508,3 +508,14 @@ if __name__ == '__main__':
                     message += '\n'
                 logger_test.info(message)
                 logger.info('End of testing...')
+
+            if current_step == 0 and current_epoch % 1 == 0:
+                wandb.log({
+                    "val/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy()*255, caption="Val Pred Seg T1")],
+                    "val/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy()*255, caption="Val Pred Seg T2")],
+                    "val/pred_change": [wandb.Image(pred_change[0].cpu().numpy()*255, caption="Val Pred Change")],
+                    "val/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy()*255, caption="Val GT Seg T1")],
+                    "val/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy()*255, caption="Val GT Seg T2")],
+                    "val/gt_change": [wandb.Image(change[0].cpu().numpy()*255, caption="Val GT Change")],
+                    "global_step": current_epoch * len(val_loader) + current_step
+                })
