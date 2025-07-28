@@ -178,7 +178,15 @@ if __name__ == '__main__':
                             cmap = plt.cm.get_cmap('tab10', num_classes)  # Use a qualitative colormap
                             
                             # Create RGB image
-                            h, w = array.shape
+                            print("array.shape:", array.shape)
+
+                            if array.ndim == 2:
+                                h, w = array.shape
+                            elif array.ndim == 3:
+                                h, w = array.shape[-2:]
+                            else:
+                                raise ValueError(f"Unsupported shape for color mask: {array.shape}")
+
                             rgb = np.zeros((h, w, 3), dtype=np.uint8)
                             
                             # Assign colors for each class
