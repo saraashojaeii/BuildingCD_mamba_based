@@ -187,7 +187,7 @@ if __name__ == '__main__':
                             h, w = array.shape
                     
                             # Use modern colormap API (matplotlib >= 3.7)
-                            cmap = matplotlib.colormaps.get_cmap('tab10', num_classes)
+                            cmap = matplotlib.cm.get_cmap('tab10', num_classes)
                     
                             # Allocate output RGB image
                             rgb = np.zeros((h, w, 3), dtype=np.uint8)
