@@ -208,7 +208,7 @@ if __name__ == '__main__':
                             # These are already colorized — just send directly
                             "train/gt_seg_t1": [wandb.Image((seg_t1[0] * 255).astype(np.uint8), caption="GT Seg T1 (multi-class)")],
                             "train/gt_seg_t2": [wandb.Image((seg_t2[0] * 255).astype(np.uint8), caption="GT Seg T2 (multi-class)")],
-                            "train/gt_change": [wandb.Image((change[0] * 255).astype(np.uint8), caption="GT Change (multi-class)")]
+                            "train/gt_change": [wandb.Image((change[0] * 255).astype(np.uint8), caption="GT Change (multi-class)")],
                         
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
