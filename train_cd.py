@@ -204,11 +204,15 @@ if __name__ == '__main__':
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
                             "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
                             "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Pred Change (multi-class)")],
-                            "train/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes']), caption="GT Seg T1 (multi-class)")],
-                            "train/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes']), caption="GT Seg T2 (multi-class)")],
-                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change (multi-class)")],
+                        
+                            # These are already colorized — just send directly
+                            "train/gt_seg_t1": [wandb.Image(seg_t1[0], caption="GT Seg T1 (multi-class)")],
+                            "train/gt_seg_t2": [wandb.Image(seg_t2[0], caption="GT Seg T2 (multi-class)")],
+                            "train/gt_change": [wandb.Image(change[0], caption="GT Change (multi-class)")],
+                        
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
+
 
                 else:
                     # Assumes binary loss on the change prediction head
