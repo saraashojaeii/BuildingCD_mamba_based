@@ -1,6 +1,6 @@
 <div align="center">
     <h2>
-        CDMamba: Incorporating Local Clues into Mamba for Remote Sensing Image Binary Change Detection
+        CDMamba: Incorporating Local Clues into Mamba for Remote Sensing Image Multi-class Change Detection
     </h2>
 </div>
 <br>
