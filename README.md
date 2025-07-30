@@ -5,26 +5,6 @@
 </div>
 <br>
 
-<br>
-<div align="center">
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://ieeexplore.ieee.org/document/10902569">
-    <span style="font-size: 20px; ">TGRS</span>
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-</div>
-<br>
-<br>
-
-[![GitHub stars](https://badgen.net/github/stars/zmoka-zht/CDMamba)](https://github.com/zmoka-zht/CDMamba)
-[![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
-[![TGRS paper](https://img.shields.io/badge/TGRS-paper-00629B.svg)](https://ieeexplore.ieee.org/document/10902569) 
-
-
-
-<br>
-<br>
-
 
 ## Installation
 
