@@ -23,30 +23,65 @@ def create_color_mask(mask, num_classes=7):
     import matplotlib.cm as cm
     import matplotlib.pyplot as plt
     
-    # Convert to numpy and squeeze extra dimensions
-    if hasattr(mask, 'cpu'):
-        mask = mask.cpu().numpy()
-    mask = np.squeeze(mask)
-    
-    # Ensure mask is 2D
-    if mask.ndim > 2:
-        mask = mask[0] if mask.shape[0] == 1 else mask[:, :, 0] if mask.shape[-1] == 1 else mask
-    
-    # Create a colormap (fix matplotlib deprecation)
     try:
-        colors = plt.colormaps['tab10']
-    except AttributeError:
-        colors = plt.cm.get_cmap('tab10')
-    
-    # Create RGB image
-    h, w = mask.shape
-    rgb_mask = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    for class_id in range(num_classes):
-        class_pixels = (mask == class_id)
-        rgb_mask[class_pixels] = (np.array(colors(class_id)[:3]) * 255).astype(np.uint8)
-    
-    return rgb_mask
+        # Convert to numpy and squeeze extra dimensions
+        if hasattr(mask, 'cpu'):
+            mask = mask.cpu().numpy()
+        elif hasattr(mask, 'detach'):
+            mask = mask.detach().cpu().numpy()
+        
+        # Debug: print original shape
+        original_shape = mask.shape
+        
+        # Squeeze all dimensions of size 1
+        mask = np.squeeze(mask)
+        
+        # Handle different cases to ensure 2D
+        if mask.ndim == 0:  # scalar
+            mask = np.array([[mask]])
+        elif mask.ndim == 1:  # 1D array
+            mask = mask.reshape(1, -1)
+        elif mask.ndim > 2:  # More than 2D
+            # Try to find the spatial dimensions (usually the largest two)
+            shape = mask.shape
+            # Find the two largest dimensions
+            sorted_dims = sorted(enumerate(shape), key=lambda x: x[1], reverse=True)
+            dim1, dim2 = sorted_dims[0][0], sorted_dims[1][0]
+            # Take a 2D slice
+            if dim1 < dim2:
+                mask = mask[..., 0] if mask.shape[-1] > 1 else mask.reshape(shape[dim1], shape[dim2])
+            else:
+                mask = mask[0, ...] if mask.shape[0] > 1 else mask.reshape(shape[dim1], shape[dim2])
+            mask = np.squeeze(mask)
+        
+        # Final check - if still not 2D, take first 2D slice
+        if mask.ndim != 2:
+            # Flatten and reshape to square-ish
+            flat = mask.flatten()
+            side = int(np.sqrt(len(flat)))
+            mask = flat[:side*side].reshape(side, side)
+        
+        # Create a colormap (fix matplotlib deprecation)
+        try:
+            colors = plt.colormaps['tab10']
+        except AttributeError:
+            colors = plt.cm.get_cmap('tab10')
+        
+        # Create RGB image
+        h, w = mask.shape
+        rgb_mask = np.zeros((h, w, 3), dtype=np.uint8)
+        
+        for class_id in range(num_classes):
+            class_pixels = (mask == class_id)
+            rgb_mask[class_pixels] = (np.array(colors(class_id)[:3]) * 255).astype(np.uint8)
+        
+        return rgb_mask
+        
+    except Exception as e:
+        # Fallback: return a simple colored square
+        print(f"Warning: create_color_mask failed with error {e}, using fallback")
+        fallback = np.ones((64, 64, 3), dtype=np.uint8) * 128  # Gray square
+        return fallback
 
 def main():
     parser = argparse.ArgumentParser()
