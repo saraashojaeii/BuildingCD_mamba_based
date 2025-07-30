@@ -100,6 +100,13 @@ def main():
     # Convert to NoneDict, which return None for missing key.
     opt = Logger.dict_to_nonedict(opt)
 
+    # Fix GPU assignment in containerized environments
+    import os
+    if 'LOCAL_RANK' in os.environ:
+        local_rank = int(os.environ['LOCAL_RANK'])
+        torch.cuda.set_device(local_rank)
+        print(f"Process {local_rank}: Explicitly set CUDA device to {local_rank}")
+    
     # Initialize Accelerator for multi-GPU training
     accelerator = Accelerator()
     device = accelerator.device
@@ -127,12 +134,13 @@ def main():
         logger.addHandler(logging.NullHandler())
         wandb.init(mode="disabled")
 
-    # Debug GPU assignment
+    # Debug GPU assignment (all processes)
+    print(f"Rank {accelerator.process_index}: Accelerator device: {accelerator.device}")
+    print(f"Rank {accelerator.process_index}: Local process index: {accelerator.local_process_index}")
+    print(f"Rank {accelerator.process_index}: Current CUDA device: {torch.cuda.current_device()}")
     if accelerator.is_main_process:
-        print(f"Accelerator device: {accelerator.device}")
-        print(f"Process index: {accelerator.process_index}")
-        print(f"Local process index: {accelerator.local_process_index}")
-        print(f"Num processes: {accelerator.num_processes}")
+        print(f"Total num processes: {accelerator.num_processes}")
+        print(f"Available GPUs: {torch.cuda.device_count()}")
 
     # Dataset creation
     train_loader = val_loader = test_loader = None
