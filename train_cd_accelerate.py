@@ -104,8 +104,16 @@ def main():
     import os
     if 'LOCAL_RANK' in os.environ:
         local_rank = int(os.environ['LOCAL_RANK'])
-        torch.cuda.set_device(local_rank)
-        print(f"Process {local_rank}: Explicitly set CUDA device to {local_rank}")
+        available_gpus = torch.cuda.device_count()
+        print(f"Process {local_rank}: Available GPUs: {available_gpus}")
+        
+        # Map local rank to available GPU (in case only subset is visible)
+        if available_gpus > 1:
+            gpu_id = local_rank % available_gpus
+            torch.cuda.set_device(gpu_id)
+            print(f"Process {local_rank}: Explicitly set CUDA device to {gpu_id}")
+        else:
+            print(f"Process {local_rank}: Only 1 GPU available, using device 0")
     
     # Initialize Accelerator for multi-GPU training
     accelerator = Accelerator()
