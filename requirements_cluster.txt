@@ -1,0 +1,19 @@
+# Core dependencies for multi-GPU training
+torch>=1.12.0
+torchvision>=0.13.0
+accelerate>=0.20.0
+
+# Fix typing_extensions compatibility
+typing_extensions>=4.8.0
+
+# Alternative to wandb if needed
+tensorboard
+
+# Other dependencies
+numpy
+matplotlib
+Pillow
+opencv-python
+tqdm
+scipy
+scikit-learn
