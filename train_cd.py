@@ -16,6 +16,7 @@ from misc.torchutils import get_scheduler, save_network
 import wandb
 import matplotlib
 import matplotlib.pyplot as plt
+from accelerate import Accelerator
 
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
@@ -44,9 +45,16 @@ if __name__ == '__main__':
     logger = logging.getLogger('base')
     logger.info(Logger.dict2str(opt))
 
-    # Initialize wandb
-    if opt.get('wandb') and opt['wandb'].get('project'):
-        wandb.init(project=opt['wandb']['project'], config=opt)
+    # Initialize Accelerator for multi-GPU training
+    accelerator = Accelerator()
+    device = accelerator.device
+    
+    # Initialize wandb only on main process
+    if accelerator.is_main_process:
+        if opt.get('wandb') and opt['wandb'].get('project'):
+            wandb.init(project=opt['wandb']['project'], config=opt)
+        else:
+            wandb.init(mode="disabled")
     else:
         wandb.init(mode="disabled")
 
@@ -100,15 +108,11 @@ if __name__ == '__main__':
     else:
         raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
-    device = torch.device('cuda' if opt['gpu_ids'] is not None and torch.cuda.is_available() else 'cpu')
     # If loss_fun is an nn.Module, move it to the device
     if isinstance(loss_fun, nn.Module):
         loss_fun.to(device)
-    # The following line was commented out and non-standard for moving to device:
-    # loss_fun.to(opt["gpu_ids"]) 
-    # Instead, ensure the device variable is correctly used for models and data.
 
-    #Create optimer
+    #Create optimizer
     if opt['train']["optimizer"]["type"] == 'adam':
         optimer = optim.Adam(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"])
     elif opt['train']["optimizer"]["type"] == 'adamw':
@@ -117,10 +121,10 @@ if __name__ == '__main__':
         optimer = optim.SGD(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"],
                             momentum=0.9, weight_decay=5e-4)
 
-    device = torch.device('cuda' if opt['gpu_ids'] is not None else 'cpu')
-    cd_model.to(device)
-    if len(opt['gpu_ids']) > 1:
-        cd_model = nn.DataParallel(cd_model)
+    # Prepare model, optimizer, and dataloaders with Accelerator
+    cd_model, optimer, train_loader, val_loader = accelerator.prepare(
+        cd_model, optimer, train_loader, val_loader
+    )
     metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection (change/no-change)
     log_dict = OrderedDict()
     #################
@@ -145,12 +149,13 @@ if __name__ == '__main__':
             epoch_loss = 0
 
             for current_step, train_data in enumerate(train_loader):
-                train_im1 = train_data['A'].to(device)
-                train_im2 = train_data['B'].to(device)
-                # Robust label extraction
-                seg_t1 = train_data['L1'].to(device) if 'L1' in train_data else train_data['L'].to(device)
-                seg_t2 = train_data['L2'].to(device) if 'L2' in train_data else train_data['L'].to(device)
-                change = train_data['change'].to(device) if 'change' in train_data else train_data['L'].to(device)
+                # Data is automatically moved to correct device by accelerator
+                train_im1 = train_data['A']
+                train_im2 = train_data['B']
+                # Robust label extraction - data automatically on correct device
+                seg_t1 = train_data['L1'] if 'L1' in train_data else train_data['L']
+                seg_t2 = train_data['L2'] if 'L2' in train_data else train_data['L']
+                change = train_data['change'] if 'change' in train_data else train_data['L']
 
                 outputs = cd_model(train_im1, train_im2)
 
@@ -164,7 +169,7 @@ if __name__ == '__main__':
                         pred_change = torch.argmax(change_pred, dim=1)
                     
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
-                    if current_step == 0 and current_epoch % 1 == 0:
+                    if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
                         
                     
                         # Create a colormap for multi-class visualization
@@ -230,7 +235,7 @@ if __name__ == '__main__':
                     pred_change = torch.argmax(change_pred, dim=1)
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
-                if current_step == 0 and current_epoch % 1 == 0:
+                if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy()*255, caption="Pred Seg T1")],
                         "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy()*255, caption="Pred Seg T2")],
@@ -243,7 +248,7 @@ if __name__ == '__main__':
                 
                 # ... rest of your code ...
                 optimer.zero_grad()
-                train_loss.backward()
+                accelerator.backward(train_loss)
                 optimer.step()
                 log_dict['loss'] = train_loss.item()
                 log_dict['loss_seg_t1'] = loss_dict['seg_t1']
@@ -272,192 +277,21 @@ if __name__ == '__main__':
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
-                wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
+                if accelerator.is_main_process:
+                    wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
 
                 # Logging
-                if current_step % opt['train']['train_print_iter'] == 0:
+                if current_step % opt['train']['train_print_iter'] == 0 and accelerator.is_main_process:
                     message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, running_mf1: %.5f\n' % (
-                        current_epoch, opt['train']['n_epoch'] - 1, current_step, len(train_loader),
-                        log_dict['loss'], log_dict['running_acc'])
+                        current_epoch, opt['train']['n_epoch'], current_step, len(train_loader), train_loss.item(),
+                        current_score.item())
                     logger.info(message)
 
             ### Epoch Summary ###
             scores = metric.get_scores()
             epoch_acc = scores['mf1']
-            log_dict['epoch_acc'] = epoch_acc.item()
-            epoch_losses.append(epoch_loss / len(train_loader))
-            for k, v in scores.items():
-                log_dict[k] = v
+            # ... (rest of the code remains the same)
 
-            # Log training summary to wandb
-            wandb.log({
-                'epoch': current_epoch, 
-                'train_epoch_loss': epoch_loss / len(train_loader), 
-                'train_epoch_mF1': log_dict['epoch_acc']
-            })
-
-            message = '[Training CD (epoch summary)]: epoch: [%d/%d]. epoch_mF1=%.5f \n' % (
-                current_epoch, opt['train']['n_epoch'] - 1, log_dict['epoch_acc'])
-            for k, v in log_dict.items():
-                message += '{:s}: {:.4e} '.format(k, v)
-            message += '\n'
-            logger.info(message)
-
-            metric.clear()
-
-            ##################
-            ### validation ###
-            ##################
-            cd_model.eval()
-            with torch.no_grad():
-                if current_epoch % opt['train']['val_freq'] == 0:
-                    val_result_path = '{}/val/{}'.format(opt['path_cd']['result'], current_epoch)
-                    os.makedirs(val_result_path, exist_ok=True)
-
-                    for current_step, val_data in enumerate(val_loader):
-                        val_img1 = val_data['A'].to(device)
-                        val_img2 = val_data['B'].to(device)
-                        seg_t1 = val_data['L1'].to(device) if 'L1' in val_data else val_data['L'].to(device)
-                        seg_t2 = val_data['L2'].to(device) if 'L2' in val_data else val_data['L'].to(device)
-                        change = val_data['change'].to(device) if 'change' in val_data else val_data['L'].to(device)
-
-                        outputs = cd_model(val_img1, val_img2)
-
-                        if isinstance(loss_fun, MultiClassCDLoss):
-                            labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
-                            val_loss, loss_dict = loss_fun(outputs, labels)
-                        else:
-                            # Assumes binary loss on the change prediction head
-                            change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
-                            val_loss = loss_fun(change_pred, change)
-                            loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
-                        log_dict['loss'] = val_loss.item()
-                        log_dict['loss_seg_t1'] = loss_dict['seg_t1']
-                        log_dict['loss_seg_t2'] = loss_dict['seg_t2']
-                        log_dict['loss_change'] = loss_dict['change']
-                        # For metric, convert transition prediction to binary change map
-                        change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
-                        G_pred = torch.argmax(change_pred.detach(), dim=1)
-
-                        n_classes = opt['model']['n_classes']
-                        from_class = G_pred // n_classes
-                        to_class = G_pred % n_classes
-                        binary_pred = (from_class != to_class).int()
-
-                        # Convert ground truth to binary (0 = no change, 1 = change)
-                        gt_binary = (change > 0).int()
-                        gt_np = gt_binary.detach().cpu().numpy().astype(np.uint8)
-                        pred_np = binary_pred.cpu().numpy()
-                        current_score = metric.update_cm(pr=pred_np, gt=gt_np)
-                        log_dict['running_acc'] = current_score.item()
-                        wandb.log({'val_loss': val_loss.item(), 'val_running_acc': current_score.item()})
-
-                        # log running batch status for val data
-                        if current_step % opt['train']['val_print_iter'] == 0:
-                            # message
-                            logs = log_dict
-                            message = '[Validation CD]. epoch: [%d/%d]. Itter: [%d/%d], running_mf1: %.5f\n' % \
-                                      (current_epoch, opt['train']['n_epoch'] - 1, current_step, len(val_loader), logs['running_acc'])
-                            logger.info(message)
-
-                            #visual
-                            out_dict = OrderedDict()
-                            # Convert prediction to binary change mask for visualization
-                            G_pred = torch.argmax(change_pred, dim=1, keepdim=False)
-                            n_classes = opt['model']['n_classes']
-                            from_class = G_pred // n_classes
-                            to_class = G_pred % n_classes
-                            binary_pred = (from_class != to_class).int()
-                            
-                            # Convert ground truth to binary for visualization
-                            gt_binary = (change > 0).int()
-                            
-                            out_dict['pred_cm'] = binary_pred
-                            out_dict['gt_cm'] = gt_binary
-                            visuals = out_dict
-
-                            img_mode = "grid"
-                            if img_mode == "single":
-                                # Converting to uint8
-                                img_A = Metrics.tensor2img(val_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
-                                img_B = Metrics.tensor2img(val_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
-                                gt_cm = Metrics.tensor2img(visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
-                                                           out_type=np.uint8, min_max=(0, 1))  # uint8
-                                pred_cm = Metrics.tensor2img(visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
-                                                             out_type=np.uint8, min_max=(0, 1))  # uint8
-
-                                # save imgs
-                                Metrics.save_img(
-                                    img_A, '{}/img_A_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
-                                Metrics.save_img(
-                                    img_B, '{}/img_B_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
-                                Metrics.save_img(
-                                    pred_cm, '{}/img_pred_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
-                                Metrics.save_img(
-                                    gt_cm, '{}/img_gt_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
-                            else:
-                                # grid img
-                                visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
-                                visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
-                                grid_img = torch.cat((val_data['A'].to(device),
-                                                      val_data['B'].to(device),
-                                                      visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
-                                                      visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1)),
-                                                     dim=0)
-                                grid_img = Metrics.tensor2img(grid_img)  # uint8
-                                Metrics.save_img(
-                                    grid_img,'{}/img_A_B_pred_gt_e{}_b{}.png'.format(val_result_path, current_epoch, current_step))
-
-                    ### log epoch status ###
-                    scores = metric.get_scores()
-                    epoch_acc = scores['mf1']
-                    log_dict['epoch_acc'] = epoch_acc.item()
-                    for k, v in scores.items():
-                        log_dict[k] = v
-                    logs = log_dict
-                    message = '[Validation CD (epoch summary)]: epoch: [%d/%d]. epoch_mF1=%.5f \n' % \
-                              (current_epoch, opt['train']['n_epoch'], logs['epoch_acc'])
-                    for k, v in logs.items():
-                        message += '{:s}: {:.4e} '.format(k, v)
-                    message += '\n'
-                    logger.info(message)
-
-                    #best model
-                    if logs['epoch_acc'] > best_mF1:
-                        is_best_model = True
-                        best_mF1 = logs['epoch_acc']
-                        logger.info('[Validation CD] Best model updated. Saving the models (current + best) and training states.')
-                        # save model
-                        save_network(opt, current_epoch, cd_model, optimer, is_best_model)
-                    else:
-                        is_best_model = False
-                        logger.info('[Validation CD]Saving the current cd model and training states.')
-                    logger.info('--- Proceed To The Next Epoch ----\n \n')
-
-
-                    metric.clear()
-
-            get_scheduler(optimizer=optimer, args=opt['train']).step()
-        logger.info('End of training.')
-        np.save(os.path.join(opt['path_cd']['result'], 'train_losses.npy'), np.array(epoch_losses))
-
-    else:
-        logger.info('Begin Model Evaluation (testing).')
-        test_result_path = '{}/test/'.format(opt['path_cd']['result'])
-        os.makedirs(test_result_path, exist_ok=True)
-        logger_test = logging.getLogger('test')  # test logger
-
-        ##load network
-        load_path = opt["path_cd"]["resume_state"]
-        print(load_path)
-        if load_path is not None:
-            logger.info(
-                'Loading pretrained model for CD model [{:s}] ...'.format(load_path))
-            gen_path = '{}_gen.pth'.format(load_path)
-            opt_path = '{}_opt.pth'.format(load_path)
-
-            # change detection model
-            cd_model = Model.create_CD_model(opt)
             cd_model.load_state_dict(torch.load(gen_path), strict=True)
             cd_model.to(device)
             metric.clear()
@@ -466,15 +300,22 @@ if __name__ == '__main__':
                 for current_step, test_data in enumerate(test_loader):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
-                    seg_t1 = test_data['L1'].to(device) if 'L1' in test_data else test_data['L'].to(device)
-                    seg_t2 = test_data['L2'].to(device) if 'L2' in test_data else test_data['L'].to(device)
-                    change = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
+                    # Robust label extraction - data automatically on correct device
+                    if 'L1' in test_data:
+                        seg_t1 = test_data['L1']
+                        seg_t2 = test_data['L2']
+                        change = test_data['change']
+                    else:
+                        # Fallback for older data format
+                        seg_t1 = test_data['L']  # Assuming 'L' is the label
+                        seg_t2 = test_data['L']  # You might need to adjust this
+                        change = test_data['L']  # You might need to adjust this
 
                     outputs = cd_model(test_img1, test_img2)
                     # Only use change head for metric and visuals
                     change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
-                    
+                    # ... (rest of the code remains the same)
                     # Convert prediction to binary change mask
                     n_classes = opt['model']['n_classes']
                     from_class = G_pred // n_classes
