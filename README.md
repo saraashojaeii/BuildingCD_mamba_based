@@ -58,29 +58,7 @@ git clone git@github.com:saraashojaeii/BuildingCD_mamba_based.git
 cd BuildingCD_mamba_based
 ```
 
-## Dataset Preparation
-
-
-### Remote Sensing Change Detection Dataset
-
-We provide the method of preparing the remote sensing change detection dataset used in the paper.
-
-#### WHU-CD Dataset
-
-- Data download link: [WHU-CD Dataset PanBaiDu](https://pan.baidu.com/s/1nh7znToO4XwaZHIOo7gCmw). Code:t2sb
-
-
-#### LEVIR-CD Dataset 
-
-- Data download link: [LEVIR-CD Dataset PanBaiDu](https://pan.baidu.com/s/1s5352sCRLxu50w2cEfSvWA). Code:qlvs
-
-
-#### LEVIR+-CD Dataset
-
-- Data download link: [LEVIR+-CD Dataset PanBaiDu](https://pan.baidu.com/s/1ymcsUei7oDyyMUBbpUTGAw ). Code: xtj8
-
-
-#### Organization Method
+## Dataset Organization Method
 
 You can also choose other sources to download the data, but you need to organize the dataset in the following format：
 
