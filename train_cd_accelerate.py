@@ -85,8 +85,12 @@ def main():
         logger.addHandler(logging.NullHandler())
         wandb.init(mode="disabled")
 
-    # Wait for all processes to sync
-    accelerator.wait_for_everyone()
+    # Debug GPU assignment
+    if accelerator.is_main_process:
+        print(f"Accelerator device: {accelerator.device}")
+        print(f"Process index: {accelerator.process_index}")
+        print(f"Local process index: {accelerator.local_process_index}")
+        print(f"Num processes: {accelerator.num_processes}")
 
     # Dataset creation
     train_loader = val_loader = test_loader = None
@@ -165,6 +169,14 @@ def main():
         cd_model, test_loader = accelerator.prepare(cd_model, test_loader)
     else:
         cd_model = accelerator.prepare(cd_model)
+
+    # Debug info after preparation
+    if accelerator.is_main_process:
+        print(f"Model prepared on device: {next(cd_model.parameters()).device}")
+        print(f"Accelerator device: {accelerator.device}")
+    
+    # Wait for all processes after preparation
+    accelerator.wait_for_everyone()
 
     # Initialize metrics
     metric = ConfuseMatrixMeter(n_class=2)
