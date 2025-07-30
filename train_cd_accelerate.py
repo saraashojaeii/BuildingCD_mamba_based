@@ -18,18 +18,25 @@ import matplotlib
 import matplotlib.pyplot as plt
 from accelerate import Accelerator
 
-def create_color_mask(tensor, num_classes=10):
-    """
-    Converts a 2D tensor or array of class labels into a color RGB image.
-    """
-    # Convert to numpy if it's a tensor
-    if isinstance(tensor, torch.Tensor):
-        mask = tensor.detach().cpu().numpy()
-    else:
-        mask = tensor
+def create_color_mask(mask, num_classes=7):
+    """Create a color mask for visualization"""
+    import matplotlib.cm as cm
+    import matplotlib.pyplot as plt
     
-    # Create a colormap
-    colors = plt.cm.get_cmap('tab10', num_classes)
+    # Convert to numpy and squeeze extra dimensions
+    if hasattr(mask, 'cpu'):
+        mask = mask.cpu().numpy()
+    mask = np.squeeze(mask)
+    
+    # Ensure mask is 2D
+    if mask.ndim > 2:
+        mask = mask[0] if mask.shape[0] == 1 else mask[:, :, 0] if mask.shape[-1] == 1 else mask
+    
+    # Create a colormap (fix matplotlib deprecation)
+    try:
+        colors = plt.colormaps['tab10']
+    except AttributeError:
+        colors = plt.cm.get_cmap('tab10')
     
     # Create RGB image
     h, w = mask.shape
