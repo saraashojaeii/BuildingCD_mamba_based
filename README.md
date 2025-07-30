@@ -5,9 +5,6 @@
 </div>
 <br>
 
-<div align="center">
-  <img src="resources/CDMamba.png" width="800"/>
-</div>
 <br>
 <div align="center">
   &nbsp;&nbsp;&nbsp;&nbsp;
@@ -28,55 +25,6 @@
 <br>
 <br>
 
-
-## Introduction
-
-* **` Notice🐍🐍`**: CDMamba has been accepted by [IEEE TGRS](https://ieeexplore.ieee.org/document/10902569)!
-
-The current branch has been tested on Linux system, PyTorch 2.1.0 and CUDA 12.1, supports Python 3.10.
-
-If you find this project helpful, please give us a ⭐️**star**⭐️, your support is our greatest motivation.
-
-
-## Updates
-
-🌟 **2024.06.20** Released the CDMamba project.
-
-## Benchmark
-### Change detection methods supported by the repository
-- [X] FC-EF (ICIP'2018)
-- [X] FC-Siam-diff (ICIP'2018)
-- [X] FC-Siam-conc (ICIP'2018)
-- [X] IFN (ISPRS'2020)
-- [X] SNUNet (GRSL'2021)
-- [X] SwinUnet (TGRS'2022)
-- [X] BIT (TGRS'2022)
-- [X] ChangeFormer (IGARSS'22)
-- [X] MSCANet (JSTARS'2022)
-- [X] Paformer (GRSL'2022)
-- [X] DARNet (TGRS'2022)
-- [X] ACABFNet (JSTARS'2023)
-- [X] RS-Mamba (arxiv'2024)
-- [X] ChangeMamba (arxiv'2024)
-- [X] CDMamba (arxiv'2024)
-- [ ] ......
-
-## TODO
-
-- [ ] Updated more change detection methods
-
-## Table of Contents
-
-- [Introduction](#Introduction)
-- [Benchmark](#Benchmark)
-- [TODO](#TODO)
-- [Table of Contents](#Table-of-Contents)
-- [Installation](#Installation)
-- [Dataset Preparation](#Dataset-Preparation)
-- [Model Training and Testing](#Model-Training-and-Testing)
-- [Citation](#Citation)
-- [License](#License)
-- [Contact Us](#Contact-Us)
 
 ## Installation
 
@@ -210,31 +158,8 @@ python train.py --config/mamba/levir_cdmamba.json
 python test.py --config/mamba/levir_test_cdmamba.json 
 ```
 #### CDMamba Weight
-PanBaiDu download link: [Weight PanBaiDu](https://pan.baidu.com/s/1fSChP8BsK_Yy78GNNd3nzg). Code:ckpt
 
 Google Drive download link [https://drive.google.com/file/d/1ImTvjN-vPnlJtVwfemzeHWcjoNMFsrS7/view?usp=drive_link]
 
-## Citation
-
-If you use the code or performance benchmarks of this project in your research, please refer to the following bibtex citation of CDMamba.
-
-```
-@ARTICLE{10902569,
-  author={Zhang, Haotian and Chen, Keyan and Liu, Chenyang and Chen, Hao and Zou, Zhengxia and Shi, Zhenwei},
-  journal={IEEE Transactions on Geoscience and Remote Sensing}, 
-  title={CDMamba: Incorporating Local Clues Into Mamba for Remote Sensing Image Binary Change Detection}, 
-  year={2025},
-  volume={63},
-  number={},
-  pages={1-16},
-  keywords={Feature extraction;Transformers;Remote sensing;Convolutional neural networks;Visualization;Artificial intelligence;Spatiotemporal phenomena;Computational modeling;Attention mechanisms;Computer vision;Bi-temporal interaction;change detection (CD);high-resolution optical remote sensing image;Mamba;state-space model},
-  doi={10.1109/TGRS.2025.3545012}}
-```
-
-## License
-
-This project is licensed under the [Apache 2.0 License](LICENSE).
-
-## Contact Us
 
 If you have any other questions❓, please contact us in time 👬
