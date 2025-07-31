@@ -71,3 +71,11 @@ yapf==0.40.2
 zipp==3.17.0
 opencv-python-headless
 accelerate>=0.20.0
+typing_extensions>=4.6.0
+torch>=1.12.0
+torchvision>=0.13.0
+typing_extensions>=4.8.0
+tensorboard
+numpy
+Pillow 
+scikit-learn
