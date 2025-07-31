@@ -36,11 +36,20 @@ def create_color_mask(tensor, num_classes: int = 10):
     # Remove singleton dimensions if they exist (e.g. 1×H×W)
     if arr.ndim == 3 and arr.shape[0] == 1:
         arr = _np.squeeze(arr, axis=0)
+    
+    # Handle case where ground truth is already RGB (H, W, 3)
+    if arr.ndim == 3 and arr.shape[2] == 3:
+        # Already an RGB image, return as uint8
+        return arr.astype(_np.uint8)
+    
     if arr.ndim != 2:
-        raise ValueError(f"Expected 2-D mask, got shape {arr.shape}")
+        raise ValueError(f"Expected 2-D mask or 3-D RGB image, got shape {arr.shape}")
 
     h, w = arr.shape
-    cmap = _mpl.cm.get_cmap('tab10', num_classes)
+    # Fix matplotlib deprecation warning
+    cmap = _mpl.colormaps.get_cmap('tab10')
+    if hasattr(cmap, 'resampled'):
+        cmap = cmap.resampled(num_classes)
     rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
     for cls in range(num_classes):
         rgb[arr == cls] = (_np.array(cmap(cls)[:3]) * 255).astype(_np.uint8)
