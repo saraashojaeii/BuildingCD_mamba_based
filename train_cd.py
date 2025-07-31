@@ -54,22 +54,30 @@ def create_color_mask(tensor, num_classes: int = 10):
     unique_vals = _np.unique(arr)
     print(f"DEBUG create_color_mask: shape={arr.shape}, dtype={arr.dtype}, unique_vals={unique_vals[:10]}")
     
-    # Fix matplotlib deprecation warning
+    # Fix matplotlib deprecation warning and ensure class 0 is visible
     cmap = _mpl.colormaps.get_cmap('tab10')
     if hasattr(cmap, 'resampled'):
         cmap = cmap.resampled(num_classes)
     rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
     
-    # If all values are 0, make sure class 0 gets a color
+    # Custom color mapping to ensure class 0 is visible (not black)
+    colors = []
+    for i in range(num_classes):
+        color = _np.array(cmap(i)[:3]) * 255
+        # If color is too dark (close to black), make it brighter
+        if _np.sum(color) < 50:  # Very dark color
+            color = _np.array([255, 0, 0])  # Make it red instead
+        colors.append(color.astype(_np.uint8))
+    
+    # If all values are 0, make sure class 0 gets a visible color
     if len(unique_vals) == 1 and unique_vals[0] == 0:
-        print("DEBUG: All values are 0, assigning color to class 0")
-        rgb[arr == 0] = (_np.array(cmap(0)[:3]) * 255).astype(_np.uint8)
+        print("DEBUG: All values are 0, assigning bright color to class 0")
+        rgb[arr == 0] = colors[0]
     else:
         for cls in range(num_classes):
             if cls in unique_vals:
-                color = (_np.array(cmap(cls)[:3]) * 255).astype(_np.uint8)
-                rgb[arr == cls] = color
-                print(f"DEBUG: Assigned color {color} to class {cls}, pixels: {_np.sum(arr == cls)}")
+                rgb[arr == cls] = colors[cls]
+                print(f"DEBUG: Assigned color {colors[cls]} to class {cls}, pixels: {_np.sum(arr == cls)}")
     
     print(f"DEBUG: Final RGB unique values: {_np.unique(rgb.reshape(-1, 3), axis=0)[:5]}")
     return rgb
@@ -296,12 +304,31 @@ if __name__ == '__main__':
                     if torch.all(seg_t2 == 0):
                         print("WARNING: seg_t2 is all zeros!")
                     
+                    # Try different approaches for ground truth visualization
+                    try:
+                        gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=num_classes)
+                    except:
+                        # Fallback: treat as raw image
+                        gt_seg_t1_img = seg_t1[0].detach().cpu().numpy()
+                        if gt_seg_t1_img.ndim == 2:
+                            gt_seg_t1_img = (gt_seg_t1_img * 255).astype(np.uint8)
+                            gt_seg_t1_img = np.stack([gt_seg_t1_img] * 3, axis=-1)
+                    
+                    try:
+                        gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
+                    except:
+                        # Fallback: treat as raw image
+                        gt_seg_t2_img = seg_t2[0].detach().cpu().numpy()
+                        if gt_seg_t2_img.ndim == 2:
+                            gt_seg_t2_img = (gt_seg_t2_img * 255).astype(np.uint8)
+                            gt_seg_t2_img = np.stack([gt_seg_t2_img] * 3, axis=-1)
+                    
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
                         "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=num_classes * num_classes), caption="Pred Change (multi-class)")],
-                        "train/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=num_classes), caption="GT Seg T1")],
-                        "train/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=num_classes), caption="GT Seg T2")],
+                        "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
+                        "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
                         "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=num_classes * num_classes), caption="GT Change")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
