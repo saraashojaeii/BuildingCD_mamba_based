@@ -310,17 +310,29 @@ if __name__ == '__main__':
                     
                     print(f"DEBUG: seg_t1 shape: {seg_t1_np.shape}, seg_t2 shape: {seg_t2_np.shape}")
                     
-                    # If ground truth is already RGB (3 channels), use it directly
+                    # If ground truth is already RGB (3 channels), scale it properly
                     if seg_t1_np.ndim == 3 and seg_t1_np.shape[2] == 3:
-                        print("DEBUG: Ground truth seg_t1 is already RGB")
-                        gt_seg_t1_img = seg_t1_np.astype(np.uint8)
+                        print(f"DEBUG: Ground truth seg_t1 is already RGB, value range: {seg_t1_np.min()}-{seg_t1_np.max()}")
+                        # Scale from 0-max_val to 0-255 for proper display
+                        max_val = seg_t1_np.max()
+                        if max_val > 0:
+                            gt_seg_t1_img = ((seg_t1_np / max_val) * 255).astype(np.uint8)
+                        else:
+                            gt_seg_t1_img = seg_t1_np.astype(np.uint8)
+                        print(f"DEBUG: Scaled seg_t1 range: {gt_seg_t1_img.min()}-{gt_seg_t1_img.max()}")
                     else:
                         print("DEBUG: Converting seg_t1 to color mask")
                         gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=num_classes)
                     
                     if seg_t2_np.ndim == 3 and seg_t2_np.shape[2] == 3:
-                        print("DEBUG: Ground truth seg_t2 is already RGB")
-                        gt_seg_t2_img = seg_t2_np.astype(np.uint8)
+                        print(f"DEBUG: Ground truth seg_t2 is already RGB, value range: {seg_t2_np.min()}-{seg_t2_np.max()}")
+                        # Scale from 0-max_val to 0-255 for proper display
+                        max_val = seg_t2_np.max()
+                        if max_val > 0:
+                            gt_seg_t2_img = ((seg_t2_np / max_val) * 255).astype(np.uint8)
+                        else:
+                            gt_seg_t2_img = seg_t2_np.astype(np.uint8)
+                        print(f"DEBUG: Scaled seg_t2 range: {gt_seg_t2_img.min()}-{gt_seg_t2_img.max()}")
                     else:
                         print("DEBUG: Converting seg_t2 to color mask")
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
