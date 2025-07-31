@@ -49,13 +49,29 @@ def create_color_mask(tensor, num_classes: int = 10):
         raise ValueError(f"Expected 2-D mask or 3-D RGB image, got shape {arr.shape}")
 
     h, w = arr.shape
+    
+    # Debug: Check unique values and data type
+    unique_vals = _np.unique(arr)
+    print(f"DEBUG create_color_mask: shape={arr.shape}, dtype={arr.dtype}, unique_vals={unique_vals[:10]}")
+    
     # Fix matplotlib deprecation warning
     cmap = _mpl.colormaps.get_cmap('tab10')
     if hasattr(cmap, 'resampled'):
         cmap = cmap.resampled(num_classes)
     rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
-    for cls in range(num_classes):
-        rgb[arr == cls] = (_np.array(cmap(cls)[:3]) * 255).astype(_np.uint8)
+    
+    # If all values are 0, make sure class 0 gets a color
+    if len(unique_vals) == 1 and unique_vals[0] == 0:
+        print("DEBUG: All values are 0, assigning color to class 0")
+        rgb[arr == 0] = (_np.array(cmap(0)[:3]) * 255).astype(_np.uint8)
+    else:
+        for cls in range(num_classes):
+            if cls in unique_vals:
+                color = (_np.array(cmap(cls)[:3]) * 255).astype(_np.uint8)
+                rgb[arr == cls] = color
+                print(f"DEBUG: Assigned color {color} to class {cls}, pixels: {_np.sum(arr == cls)}")
+    
+    print(f"DEBUG: Final RGB unique values: {_np.unique(rgb.reshape(-1, 3), axis=0)[:5]}")
     return rgb
 
 if __name__ == '__main__':
@@ -269,6 +285,17 @@ if __name__ == '__main__':
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0:
+                    # Debug ground truth masks
+                    print(f"DEBUG GT seg_t1 shape: {seg_t1.shape}, unique values: {torch.unique(seg_t1)}")
+                    print(f"DEBUG GT seg_t2 shape: {seg_t2.shape}, unique values: {torch.unique(seg_t2)}")
+                    print(f"DEBUG GT change shape: {change.shape}, unique values: {torch.unique(change)}")
+                    
+                    # Check if ground truth masks are all zeros
+                    if torch.all(seg_t1 == 0):
+                        print("WARNING: seg_t1 is all zeros!")
+                    if torch.all(seg_t2 == 0):
+                        print("WARNING: seg_t2 is all zeros!")
+                    
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
