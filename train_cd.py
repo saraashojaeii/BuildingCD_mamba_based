@@ -279,6 +279,10 @@ if __name__ == '__main__':
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
+                # Save change prediction for metrics before cleanup
+                change_pred = outputs[2].detach()  # [B, num_classes*num_classes, H, W]
+                change_gt = change.detach()  # Save ground truth too
+                
                 # Gradient accumulation with mixed precision
                 scaler.scale(train_loss).backward()
                 
@@ -302,8 +306,7 @@ if __name__ == '__main__':
                 epoch_loss += train_loss.item()
 
                 # For metric, convert transition prediction to binary change map
-                change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
-                G_pred = torch.argmax(change_pred.detach(), dim=1)
+                G_pred = torch.argmax(change_pred, dim=1)
 
                 n_classes = opt['model']['n_classes']
                 from_class = G_pred // n_classes
@@ -311,8 +314,8 @@ if __name__ == '__main__':
                 binary_pred = (from_class != to_class).int()
                 
                 # Convert ground truth to binary (0 = no change, 1 = change)
-                # Assuming 'change' contains class transition IDs or is already binary
-                gt_np = (change.detach().cpu().numpy() > 0).astype(np.uint8)
+                # Using saved change_gt instead of deleted change variable
+                gt_np = (change_gt.cpu().numpy() > 0).astype(np.uint8)
                 pred_np = binary_pred.cpu().numpy()
 
                 if current_step % 100 == 0:
@@ -330,6 +333,10 @@ if __name__ == '__main__':
                         current_epoch, opt['train']['n_epoch'], current_step, len(train_loader), train_loss.item(),
                         current_score.item())
                     logger.info(message)
+                
+                # Final cleanup of saved tensors
+                del change_pred, change_gt, G_pred, binary_pred
+                torch.cuda.empty_cache()
 
             ### Epoch Summary ###
             scores = metric.get_scores()
