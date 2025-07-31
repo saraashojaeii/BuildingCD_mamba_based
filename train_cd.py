@@ -49,10 +49,7 @@ def create_color_mask(tensor, num_classes: int = 10):
         raise ValueError(f"Expected 2-D mask or 3-D RGB image, got shape {arr.shape}")
 
     h, w = arr.shape
-    
-    # Debug: Check unique values and data type
     unique_vals = _np.unique(arr)
-    print(f"DEBUG create_color_mask: shape={arr.shape}, dtype={arr.dtype}, unique_vals={unique_vals[:10]}")
     
     # Fix matplotlib deprecation warning and ensure class 0 is visible
     cmap = _mpl.colormaps.get_cmap('tab10')
@@ -69,17 +66,11 @@ def create_color_mask(tensor, num_classes: int = 10):
             color = _np.array([255, 0, 0])  # Make it red instead
         colors.append(color.astype(_np.uint8))
     
-    # If all values are 0, make sure class 0 gets a visible color
-    if len(unique_vals) == 1 and unique_vals[0] == 0:
-        print("DEBUG: All values are 0, assigning bright color to class 0")
-        rgb[arr == 0] = colors[0]
-    else:
-        for cls in range(num_classes):
-            if cls in unique_vals:
-                rgb[arr == cls] = colors[cls]
-                print(f"DEBUG: Assigned color {colors[cls]} to class {cls}, pixels: {_np.sum(arr == cls)}")
+    # Apply color mapping
+    for cls in range(num_classes):
+        if cls in unique_vals:
+            rgb[arr == cls] = colors[cls]
     
-    print(f"DEBUG: Final RGB unique values: {_np.unique(rgb.reshape(-1, 3), axis=0)[:5]}")
     return rgb
 
 if __name__ == '__main__':
@@ -293,48 +284,29 @@ if __name__ == '__main__':
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0:
-                    # Debug ground truth masks
-                    print(f"DEBUG GT seg_t1 shape: {seg_t1.shape}, unique values: {torch.unique(seg_t1)}")
-                    print(f"DEBUG GT seg_t2 shape: {seg_t2.shape}, unique values: {torch.unique(seg_t2)}")
-                    print(f"DEBUG GT change shape: {change.shape}, unique values: {torch.unique(change)}")
-                    
-                    # Check if ground truth masks are all zeros
-                    if torch.all(seg_t1 == 0):
-                        print("WARNING: seg_t1 is all zeros!")
-                    if torch.all(seg_t2 == 0):
-                        print("WARNING: seg_t2 is all zeros!")
-                    
                     # Handle ground truth masks - check if they're already RGB or need color mapping
                     seg_t1_np = seg_t1[0].detach().cpu().numpy()
                     seg_t2_np = seg_t2[0].detach().cpu().numpy()
                     
-                    print(f"DEBUG: seg_t1 shape: {seg_t1_np.shape}, seg_t2 shape: {seg_t2_np.shape}")
-                    
                     # If ground truth is already RGB (3 channels), scale it properly
                     if seg_t1_np.ndim == 3 and seg_t1_np.shape[2] == 3:
-                        print(f"DEBUG: Ground truth seg_t1 is already RGB, value range: {seg_t1_np.min()}-{seg_t1_np.max()}")
                         # Scale from 0-max_val to 0-255 for proper display
                         max_val = seg_t1_np.max()
                         if max_val > 0:
                             gt_seg_t1_img = ((seg_t1_np / max_val) * 255).astype(np.uint8)
                         else:
                             gt_seg_t1_img = seg_t1_np.astype(np.uint8)
-                        print(f"DEBUG: Scaled seg_t1 range: {gt_seg_t1_img.min()}-{gt_seg_t1_img.max()}")
                     else:
-                        print("DEBUG: Converting seg_t1 to color mask")
                         gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=num_classes)
                     
                     if seg_t2_np.ndim == 3 and seg_t2_np.shape[2] == 3:
-                        print(f"DEBUG: Ground truth seg_t2 is already RGB, value range: {seg_t2_np.min()}-{seg_t2_np.max()}")
                         # Scale from 0-max_val to 0-255 for proper display
                         max_val = seg_t2_np.max()
                         if max_val > 0:
                             gt_seg_t2_img = ((seg_t2_np / max_val) * 255).astype(np.uint8)
                         else:
                             gt_seg_t2_img = seg_t2_np.astype(np.uint8)
-                        print(f"DEBUG: Scaled seg_t2 range: {gt_seg_t2_img.min()}-{gt_seg_t2_img.max()}")
                     else:
-                        print("DEBUG: Converting seg_t2 to color mask")
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
                     
                     wandb.log({
@@ -386,10 +358,7 @@ if __name__ == '__main__':
                 gt_np = (change_gt.cpu().numpy() > 0).astype(np.uint8)
                 pred_np = binary_pred.cpu().numpy()
 
-                if current_step % 100 == 0:
-                    print("DEBUG: Unique predictions (binary):", np.unique(pred_np))
-                    print("DEBUG: Unique GT (binary):", np.unique(gt_np))
-                    print("DEBUG: Metric num_classes:", metric.n_class)
+
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
@@ -443,24 +412,24 @@ if __name__ == '__main__':
                     
                     # Get ground truth
                     gt = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
-                    
-                    # Convert ground truth to binary for metrics
-                    gt_binary = (gt > 0).int()
-                    
-                    # Update confusion matrix with binary predictions
-                    current_score = metric.update_cm(pr=binary_pred.cpu().numpy(), gt=gt_binary.detach().cpu().numpy())
-                    log_dict['running_acc'] = current_score.item()
 
-                    logs = log_dict
-                    message = '[Testing CD]. Itter: [%d/%d], running_mf1: %.5f\n' % \
-                              (current_step, len(test_loader), logs['running_acc'])
-                    logger_test.info(message)
+        # Visuals
+        out_dict = OrderedDict()
+        out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
+        out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
+        visuals = out_dict
 
-                    # Visuals
-                    out_dict = OrderedDict()
-                    out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
-                    out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
-                    visuals = out_dict
+        img_mode = 'single'
+        if img_mode == 'single':
+            # Converting to uint8
+            visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
+            visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
+            img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+            img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+            gt_cm = Metrics.tensor2img(visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1), out_type=np.uint8,
+                                       min_max=(0, 1))  # uint8
+            pred_cm = Metrics.tensor2img(visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                                         out_type=np.uint8, min_max=(0, 1))  # uint8
 
                     img_mode = 'single'
                     if img_mode == 'single':
