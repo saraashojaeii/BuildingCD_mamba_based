@@ -413,23 +413,11 @@ if __name__ == '__main__':
                     # Get ground truth
                     gt = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
 
-        # Visuals
-        out_dict = OrderedDict()
-        out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
-        out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
-        visuals = out_dict
-
-        img_mode = 'single'
-        if img_mode == 'single':
-            # Converting to uint8
-            visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
-            visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
-            img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
-            img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
-            gt_cm = Metrics.tensor2img(visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1), out_type=np.uint8,
-                                       min_max=(0, 1))  # uint8
-            pred_cm = Metrics.tensor2img(visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
-                                         out_type=np.uint8, min_max=(0, 1))  # uint8
+                    # Visuals
+                    out_dict = OrderedDict()
+                    out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
+                    out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
+                    visuals = out_dict
 
                     img_mode = 'single'
                     if img_mode == 'single':
