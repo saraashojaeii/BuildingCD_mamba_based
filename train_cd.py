@@ -107,6 +107,7 @@ if __name__ == '__main__':
 
     #Create cd model
     cd_model = Model.create_CD_model(opt)
+    cd_model.to(device)
 
     num_classes = opt['model']['n_classes']
     logger.info(f"Number of classes for loss function: {num_classes}")
@@ -168,13 +169,13 @@ if __name__ == '__main__':
             epoch_loss = 0
 
             for current_step, train_data in enumerate(train_loader):
-                # Data is automatically moved to correct device by accelerator
-                train_im1 = train_data['A']
-                train_im2 = train_data['B']
-                # Robust label extraction - data automatically on correct device
-                seg_t1 = train_data['L1'] if 'L1' in train_data else train_data['L']
-                seg_t2 = train_data['L2'] if 'L2' in train_data else train_data['L']
-                change = train_data['change'] if 'change' in train_data else train_data['L']
+                # Move data to GPU manually
+                train_im1 = train_data['A'].to(device)
+                train_im2 = train_data['B'].to(device)
+                # Robust label extraction and move to device
+                seg_t1 = (train_data['L1'] if 'L1' in train_data else train_data['L']).to(device)
+                seg_t2 = (train_data['L2'] if 'L2' in train_data else train_data['L']).to(device)
+                change = (train_data['change'] if 'change' in train_data else train_data['L']).to(device)
 
                 outputs = cd_model(train_im1, train_im2)
 
