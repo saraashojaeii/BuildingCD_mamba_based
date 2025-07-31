@@ -380,7 +380,13 @@ if __name__ == '__main__':
             epoch_acc = scores['mf1']
             # ... (rest of the code remains the same)
 
-            cd_model.load_state_dict(torch.load(gen_path), strict=True)
+            # Load the best model for testing
+            gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
+            if os.path.exists(gen_path):
+                cd_model.load_state_dict(torch.load(gen_path), strict=True)
+                logger.info(f'Loaded best model from {gen_path}')
+            else:
+                logger.warning(f'Best model not found at {gen_path}, using current model')
             cd_model.to(device)
             metric.clear()
             cd_model.eval()
