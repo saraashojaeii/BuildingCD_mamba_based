@@ -1,4 +1,8 @@
 import torch
+import os
+# Set CUDA memory management before importing torch
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+
 import torch.optim as optim
 import data as Data
 import models as Model
@@ -6,7 +10,6 @@ import torch.nn as nn
 import argparse
 import logging
 import core.logger as Logger
-import os
 import numpy as np
 from misc.metric_tools import ConfuseMatrixMeter
 from models.loss import *
@@ -117,6 +120,10 @@ if __name__ == '__main__':
     #Create cd model
     cd_model = Model.create_CD_model(opt)
     cd_model.to(device)
+    
+    # Enable gradient checkpointing if available to save memory
+    if hasattr(cd_model, 'gradient_checkpointing_enable'):
+        cd_model.gradient_checkpointing_enable()
 
     num_classes = opt['model']['n_classes']
     logger.info(f"Number of classes for loss function: {num_classes}")
@@ -180,12 +187,20 @@ if __name__ == '__main__':
 
             epoch_loss = 0
 
-            # Gradient accumulation for effective larger batch size
-            accumulation_steps = 4  # Effective batch size = 1 * 4 = 4
+            # Initial memory cleanup
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            # Reduce gradient accumulation for memory savings
+            accumulation_steps = 2  # Effective batch size = 1 * 2 = 2
+            
+            # Set memory fraction to avoid fragmentation (more conservative)
+            torch.cuda.set_per_process_memory_fraction(0.8)
             
             for current_step, train_data in enumerate(train_loader):
-                # Clear cache at start of each step
+                # Aggressive memory cleanup at start of each step
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
                 
                 # Move data to GPU manually
                 train_im1 = train_data['A'].to(device)
@@ -198,6 +213,10 @@ if __name__ == '__main__':
                 # Use gradient checkpointing to save memory
                 with torch.cuda.amp.autocast():  # Mixed precision
                     outputs = cd_model(train_im1, train_im2)
+                
+                # Clear input tensors from memory immediately after forward pass
+                del train_im1, train_im2
+                torch.cuda.empty_cache()
 
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
@@ -267,9 +286,11 @@ if __name__ == '__main__':
                     scaler.step(optimer)
                     scaler.update()
                     optimer.zero_grad()
+                    # Clear gradients from memory
+                    torch.cuda.empty_cache()
                     
-                # Clean up memory after each batch
-                del train_im1, train_im2, seg_t1, seg_t2, change, outputs
+                # Clean up memory after each batch (avoid double deletion)
+                del seg_t1, seg_t2, change, outputs
                 if 'pred_seg_t1' in locals():
                     del pred_seg_t1, pred_seg_t2, pred_change
                 torch.cuda.empty_cache()
