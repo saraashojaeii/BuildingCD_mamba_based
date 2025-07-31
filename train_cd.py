@@ -145,6 +145,9 @@ if __name__ == '__main__':
         optimer = optim.SGD(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"],
                             momentum=0.9, weight_decay=5e-4)
 
+    # Initialize mixed precision scaler
+    scaler = torch.cuda.amp.GradScaler()
+    
     metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection (change/no-change)
     log_dict = OrderedDict()
     #################
@@ -168,7 +171,13 @@ if __name__ == '__main__':
 
             epoch_loss = 0
 
+            # Gradient accumulation for effective larger batch size
+            accumulation_steps = 4  # Effective batch size = 1 * 4 = 4
+            
             for current_step, train_data in enumerate(train_loader):
+                # Clear cache at start of each step
+                torch.cuda.empty_cache()
+                
                 # Move data to GPU manually
                 train_im1 = train_data['A'].to(device)
                 train_im2 = train_data['B'].to(device)
@@ -177,11 +186,16 @@ if __name__ == '__main__':
                 seg_t2 = (train_data['L2'] if 'L2' in train_data else train_data['L']).to(device)
                 change = (train_data['change'] if 'change' in train_data else train_data['L']).to(device)
 
-                outputs = cd_model(train_im1, train_im2)
+                # Use gradient checkpointing to save memory
+                with torch.cuda.amp.autocast():  # Mixed precision
+                    outputs = cd_model(train_im1, train_im2)
 
                 if isinstance(loss_fun, MultiClassCDLoss):
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
-                    train_loss, loss_dict = loss_fun(outputs, labels)
+                    with torch.cuda.amp.autocast():
+                        train_loss, loss_dict = loss_fun(outputs, labels)
+                    # Scale loss for gradient accumulation
+                    train_loss = train_loss / accumulation_steps
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     with torch.no_grad():
                         pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
@@ -211,7 +225,10 @@ if __name__ == '__main__':
                 else:
                     # Assumes binary loss on the change prediction head
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
-                    train_loss = loss_fun(change_pred, change)
+                    with torch.cuda.amp.autocast():
+                        train_loss = loss_fun(change_pred, change)
+                    # Scale loss for gradient accumulation
+                    train_loss = train_loss / accumulation_steps
                     # Create a dummy loss_dict for logging consistency
                     loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
                     seg_logits_t1 = seg_logits_t2 = torch.zeros_like(change_pred)  # dummy for logging
@@ -234,10 +251,20 @@ if __name__ == '__main__':
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
-                # ... rest of your code ...
-                optimer.zero_grad()
-                train_loss.backward()
-                optimer.step()
+                # Gradient accumulation with mixed precision
+                scaler.scale(train_loss).backward()
+                
+                if (current_step + 1) % accumulation_steps == 0 or (current_step + 1) == len(train_loader):
+                    scaler.step(optimer)
+                    scaler.update()
+                    optimer.zero_grad()
+                    
+                # Clean up memory after each batch
+                del train_im1, train_im2, seg_t1, seg_t2, change, outputs
+                if 'pred_seg_t1' in locals():
+                    del pred_seg_t1, pred_seg_t2, pred_change
+                torch.cuda.empty_cache()
+                
                 log_dict['loss'] = train_loss.item()
                 log_dict['loss_seg_t1'] = loss_dict['seg_t1']
                 log_dict['loss_seg_t2'] = loss_dict['seg_t2']
