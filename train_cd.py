@@ -304,24 +304,26 @@ if __name__ == '__main__':
                     if torch.all(seg_t2 == 0):
                         print("WARNING: seg_t2 is all zeros!")
                     
-                    # Try different approaches for ground truth visualization
-                    try:
-                        gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=num_classes)
-                    except:
-                        # Fallback: treat as raw image
-                        gt_seg_t1_img = seg_t1[0].detach().cpu().numpy()
-                        if gt_seg_t1_img.ndim == 2:
-                            gt_seg_t1_img = (gt_seg_t1_img * 255).astype(np.uint8)
-                            gt_seg_t1_img = np.stack([gt_seg_t1_img] * 3, axis=-1)
+                    # Handle ground truth masks - check if they're already RGB or need color mapping
+                    seg_t1_np = seg_t1[0].detach().cpu().numpy()
+                    seg_t2_np = seg_t2[0].detach().cpu().numpy()
                     
-                    try:
+                    print(f"DEBUG: seg_t1 shape: {seg_t1_np.shape}, seg_t2 shape: {seg_t2_np.shape}")
+                    
+                    # If ground truth is already RGB (3 channels), use it directly
+                    if seg_t1_np.ndim == 3 and seg_t1_np.shape[2] == 3:
+                        print("DEBUG: Ground truth seg_t1 is already RGB")
+                        gt_seg_t1_img = seg_t1_np.astype(np.uint8)
+                    else:
+                        print("DEBUG: Converting seg_t1 to color mask")
+                        gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=num_classes)
+                    
+                    if seg_t2_np.ndim == 3 and seg_t2_np.shape[2] == 3:
+                        print("DEBUG: Ground truth seg_t2 is already RGB")
+                        gt_seg_t2_img = seg_t2_np.astype(np.uint8)
+                    else:
+                        print("DEBUG: Converting seg_t2 to color mask")
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
-                    except:
-                        # Fallback: treat as raw image
-                        gt_seg_t2_img = seg_t2[0].detach().cpu().numpy()
-                        if gt_seg_t2_img.ndim == 2:
-                            gt_seg_t2_img = (gt_seg_t2_img * 255).astype(np.uint8)
-                            gt_seg_t2_img = np.stack([gt_seg_t2_img] * 3, axis=-1)
                     
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
