@@ -16,11 +16,7 @@ from misc.torchutils import get_scheduler, save_network
 import wandb
 import matplotlib
 import matplotlib.pyplot as plt
-from accelerate import Accelerator
 
-# ---------------------------
-# Utility for colorful mask visualization
-# ---------------------------
 
 def create_color_mask(tensor, num_classes: int = 10):
     """Convert a 2-D label tensor/ndarray to an RGB image with a categorical colormap.
@@ -77,16 +73,11 @@ if __name__ == '__main__':
     logger = logging.getLogger('base')
     logger.info(Logger.dict2str(opt))
 
-    # Initialize Accelerator for multi-GPU training
-    accelerator = Accelerator()
-    device = accelerator.device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize wandb only on main process
-    if accelerator.is_main_process:
-        if opt.get('wandb') and opt['wandb'].get('project'):
-            wandb.init(project=opt['wandb']['project'], config=opt)
-        else:
-            wandb.init(mode="disabled")
+    if opt.get('wandb') and opt['wandb'].get('project'):
+        wandb.init(project=opt['wandb']['project'], config=opt)
     else:
         wandb.init(mode="disabled")
 
@@ -153,10 +144,6 @@ if __name__ == '__main__':
         optimer = optim.SGD(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"],
                             momentum=0.9, weight_decay=5e-4)
 
-    # Prepare model, optimizer, and dataloaders with Accelerator
-    cd_model, optimer, train_loader, val_loader = accelerator.prepare(
-        cd_model, optimer, train_loader, val_loader
-    )
     metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection (change/no-change)
     log_dict = OrderedDict()
     #################
@@ -201,7 +188,7 @@ if __name__ == '__main__':
                         pred_change = torch.argmax(change_pred, dim=1)
                     
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
-                    if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
+                    if current_step == 0 and current_epoch % 1 == 0:
                         
                     
                     
@@ -235,7 +222,7 @@ if __name__ == '__main__':
                     pred_change = torch.argmax(change_pred, dim=1)
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
-                if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
+                if current_step == 0 and current_epoch % 1 == 0:
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
@@ -248,7 +235,7 @@ if __name__ == '__main__':
                 
                 # ... rest of your code ...
                 optimer.zero_grad()
-                accelerator.backward(train_loss)
+                train_loss.backward()
                 optimer.step()
                 log_dict['loss'] = train_loss.item()
                 log_dict['loss_seg_t1'] = loss_dict['seg_t1']
@@ -277,11 +264,10 @@ if __name__ == '__main__':
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
-                if accelerator.is_main_process:
-                    wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
+                wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
 
                 # Logging
-                if current_step % opt['train']['train_print_iter'] == 0 and accelerator.is_main_process:
+                if current_step % opt['train']['train_print_iter'] == 0:
                     message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, running_mf1: %.5f\n' % (
                         current_epoch, opt['train']['n_epoch'], current_step, len(train_loader), train_loss.item(),
                         current_score.item())
