@@ -18,6 +18,38 @@ import matplotlib
 import matplotlib.pyplot as plt
 from accelerate import Accelerator
 
+# ---------------------------
+# Utility for colorful mask visualization
+# ---------------------------
+
+def create_color_mask(tensor, num_classes: int = 10):
+    """Convert a 2-D label tensor/ndarray to an RGB image with a categorical colormap.
+
+    This is used for logging multi-class segmentation masks to wandb so that they
+    appear in color instead of a binary/grayscale mask.
+    """
+    import numpy as _np
+    import matplotlib as _mpl
+
+    # Convert to numpy array
+    if isinstance(tensor, torch.Tensor):
+        arr = tensor.detach().cpu().numpy()
+    else:
+        arr = _np.asarray(tensor)
+
+    # Remove singleton dimensions if they exist (e.g. 1×H×W)
+    if arr.ndim == 3 and arr.shape[0] == 1:
+        arr = _np.squeeze(arr, axis=0)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2-D mask, got shape {arr.shape}")
+
+    h, w = arr.shape
+    cmap = _mpl.cm.get_cmap('tab10', num_classes)
+    rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
+    for cls in range(num_classes):
+        rgb[arr == cls] = (_np.array(cmap(cls)[:3]) * 255).astype(_np.uint8)
+    return rgb
+
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='/home/saraashojaeii/git/BuildingCD_mamba_based/config/second_cdmamba/second_cdmamba.json',
@@ -172,38 +204,6 @@ if __name__ == '__main__':
                     if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
                         
                     
-                        # Create a colormap for multi-class visualization
-                        def create_color_mask(tensor, num_classes=10):
-                            """
-                            Converts a 2D tensor or array of class labels into a color RGB image.
-                            """
-                            # Convert to numpy array if it's a PyTorch tensor
-                            if isinstance(tensor, torch.Tensor):
-                                array = tensor.cpu().numpy()
-                            else:
-                                array = tensor
-                    
-                            # Squeeze singleton dimensions
-                            if array.ndim == 3:
-                                array = np.squeeze(array)
-                            if array.ndim != 2:
-                                raise ValueError(f"Expected 2D array, got shape: {array.shape}")
-                    
-                            h, w = array.shape
-                    
-                            # Use modern colormap API (matplotlib >= 3.7)
-                            cmap = matplotlib.cm.get_cmap('tab10', num_classes)
-                    
-                            # Allocate output RGB image
-                            rgb = np.zeros((h, w, 3), dtype=np.uint8)
-                    
-                            # Assign colors to each class
-                            for i in range(num_classes):
-                                mask = (array == i)
-                                color = (np.array(cmap(i)[:3]) * 255).astype(np.uint8)
-                                rgb[mask] = color
-                    
-                            return rgb
                     
                         wandb.log({
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
@@ -211,9 +211,9 @@ if __name__ == '__main__':
                             "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Pred Change (multi-class)")],
                         
                             # These are already colorized — just send directly
-                            "train/gt_seg_t1": [wandb.Image((seg_t1[0].cpu().numpy() * 255).astype(np.uint8), caption="GT Seg T1 (multi-class)")],
-                            "train/gt_seg_t2": [wandb.Image((seg_t2[0].cpu().numpy() * 255).astype(np.uint8), caption="GT Seg T2 (multi-class)")],
-                            "train/gt_change": [wandb.Image((change[0].cpu().numpy() * 255).astype(np.uint8), caption="GT Change (multi-class)")],
+                            "train/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes']), caption="GT Seg T1 (multi-class)")],
+                            "train/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes']), caption="GT Seg T2 (multi-class)")],
+                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change (multi-class)")],
 
                         
                             "global_step": current_epoch * len(train_loader) + current_step
@@ -237,12 +237,12 @@ if __name__ == '__main__':
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0 and accelerator.is_main_process:
                     wandb.log({
-                        "train/pred_seg_t1": [wandb.Image(pred_seg_t1[0].cpu().numpy()*255, caption="Pred Seg T1")],
-                        "train/pred_seg_t2": [wandb.Image(pred_seg_t2[0].cpu().numpy()*255, caption="Pred Seg T2")],
-                        "train/pred_change": [wandb.Image(pred_change[0].cpu().numpy()*255, caption="Pred Change")],
-                        "train/gt_seg_t1": [wandb.Image(seg_t1[0].cpu().numpy()*255, caption="GT Seg T1")],
-                        "train/gt_seg_t2": [wandb.Image(seg_t2[0].cpu().numpy()*255, caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(change[0].cpu().numpy()*255, caption="GT Change")],
+                        "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
+                        "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
+                        "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=num_classes * num_classes), caption="Pred Change (multi-class)")],
+                        "train/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=num_classes), caption="GT Seg T1")],
+                        "train/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=num_classes), caption="GT Seg T2")],
+                        "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=num_classes * num_classes), caption="GT Change")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
