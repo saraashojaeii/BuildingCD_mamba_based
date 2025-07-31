@@ -183,7 +183,7 @@ if __name__ == '__main__':
     best_epoch = 0
 
     # Training loop
-    for epoch in range(opt['train']['epoch']):
+    for epoch in range(opt['train']['n_epoch']):
         current_epoch = epoch
         
         # Training phase
@@ -239,7 +239,7 @@ if __name__ == '__main__':
                 metric.update_cm(pr=pred_change_idx, gt=change_np)
 
                 # Log training metrics
-                if current_step % opt['train']['print_freq'] == 0:
+                if current_step % opt['train'].get('train_print_iter', 100) == 0:
                     logs = {
                         'epoch': current_epoch,
                         'iter': current_step,
@@ -260,7 +260,7 @@ if __name__ == '__main__':
                     accelerator.log(logs, step=current_step)
 
                 # Log training visualizations periodically
-                if current_step % (opt['train']['print_freq'] * 10) == 0:
+                if current_step % (opt['train'].get('train_print_iter', 100) * 10) == 0:
                     accelerator.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1_idx[0]), caption="Train Pred Seg T1")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2_idx[0]), caption="Train Pred Seg T2")],
@@ -277,7 +277,7 @@ if __name__ == '__main__':
         scheduler.step()
 
         # Validation phase (only on main process)
-        if accelerator.is_main_process and current_epoch % opt['train']['val_freq'] == 0:
+        if accelerator.is_main_process and current_epoch % opt['train'].get('val_freq', 1) == 0:
             cd_model.eval()
             metric_val = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
             
@@ -354,7 +354,7 @@ if __name__ == '__main__':
         accelerator.wait_for_everyone()
 
         # Save checkpoint periodically (only on main process)
-        if accelerator.is_main_process and current_epoch % opt['train']['save_checkpoint_freq'] == 0:
+        if accelerator.is_main_process and current_epoch % opt['train'].get('save_checkpoint_freq', 10) == 0:
             unwrapped_model = accelerator.unwrap_model(cd_model)
             save_network(unwrapped_model, current_epoch, opt['path_cd']['models'])
             logger.info(f'Checkpoint saved at epoch {current_epoch}')
