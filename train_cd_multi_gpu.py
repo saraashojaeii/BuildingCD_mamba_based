@@ -97,7 +97,7 @@ if __name__ == '__main__':
     # Initialize Accelerator for multi-GPU training
     accelerator = Accelerator(
         gradient_accumulation_steps=opt['train'].get('gradient_accumulation_steps', 1),
-        mixed_precision=opt['train'].get('mixed_precision', 'no'),  # 'fp16', 'bf16', or 'no'
+        mixed_precision=opt['train'].get('mixed_precision', 'fp16'),  # Use fp16 for better memory efficiency
         log_with="wandb" if opt.get('wandb') and opt['wandb'].get('project') else None,
         project_dir=opt['path_cd']['log'] if opt.get('path_cd') else None
     )
@@ -132,20 +132,20 @@ if __name__ == '__main__':
     # Dataset
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train' and args.phase != 'test':
-            train_set = Data.create_dataset(dataset_opt, phase)
-            train_loader = Data.create_dataloader(
+            train_set = Data.create_cd_dataset(dataset_opt, phase)
+            train_loader = Data.create_cd_dataloader(
                 train_set, dataset_opt, phase)
             if accelerator.is_main_process:
                 logger.info('Dataset [{:s}] is created.'.format(dataset_opt['name']))
         elif phase == 'val':
-            val_set = Data.create_dataset(dataset_opt, phase)
-            val_loader = Data.create_dataloader(
+            val_set = Data.create_cd_dataset(dataset_opt, phase)
+            val_loader = Data.create_cd_dataloader(
                 val_set, dataset_opt, phase)
             if accelerator.is_main_process:
                 logger.info('Dataset [{:s}] is created.'.format(dataset_opt['name']))
 
     # Model
-    cd_model = Model.create_model(opt)
+    cd_model = Model.create_CD_model(opt)
     
     if accelerator.is_main_process:
         logger.info('Initial Model Finished')
