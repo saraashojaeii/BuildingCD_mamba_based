@@ -198,9 +198,10 @@ if __name__ == '__main__':
             # Get data (accelerator handles device placement)
             train_im1 = train_data['A']
             train_im2 = train_data['B']
-            seg_t1 = train_data['seg_t1']
-            seg_t2 = train_data['seg_t2']
-            change = train_data['change']
+            # Robust label extraction with fallbacks
+            seg_t1 = train_data.get('L1', train_data.get('seg_t1', train_data['L']))
+            seg_t2 = train_data.get('L2', train_data.get('seg_t2', train_data['L']))
+            change = train_data.get('change', train_data['L'])
 
             # Forward pass
             with accelerator.accumulate(cd_model):
@@ -285,9 +286,10 @@ if __name__ == '__main__':
                 for i, val_data in enumerate(val_loader):
                     val_im1 = val_data['A']
                     val_im2 = val_data['B']
-                    seg_t1 = val_data['seg_t1']
-                    seg_t2 = val_data['seg_t2']
-                    change = val_data['change']
+                    # Robust label extraction with fallbacks
+                    seg_t1 = val_data.get('L1', val_data.get('seg_t1', val_data['L']))
+                    seg_t2 = val_data.get('L2', val_data.get('seg_t2', val_data['L']))
+                    change = val_data.get('change', val_data['L'])
 
                     # Forward pass
                     outputs = cd_model(val_im1, val_im2)
