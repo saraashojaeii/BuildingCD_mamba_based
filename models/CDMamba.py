@@ -259,6 +259,8 @@ class CDMamba(nn.Module):
         self.convInit = get_conv_layer(spatial_dims, in_channels, init_filters)
         self.srcm_encoder_layers = self._make_srcm_encoder_layers()
         self.srcm_decoder_layers, self.up_samples = self._make_srcm_decoder_layers(up_mode=self.up_mode)
+        self.srcm_decoder_layers_seg_t1, self.up_samples_seg_t1 = self._make_srcm_decoder_layers(up_mode=self.up_mode)
+        self.srcm_decoder_layers_seg_t2, self.up_samples_seg_t2 = self._make_srcm_decoder_layers(up_mode=self.up_mode)
         # Remove old conv_final, replaced by segmentation heads
         # self.conv_final = self._make_final_conv(out_channels)
 
@@ -375,8 +377,22 @@ class CDMamba(nn.Module):
 
         return x, down_x
 
+    def _decode_with_layers(self, x: torch.Tensor, down_x: list[torch.Tensor],
+                             up_samples: nn.ModuleList, decoder_layers: nn.ModuleList) -> torch.Tensor:
+        """Generic decoder that operates on provided up-sample and decoder layer lists."""
+        for i, (up, upl) in enumerate(zip(up_samples, decoder_layers)):
+            x_up = up(x)
+            # Ensure spatial dimensions match for skip connection
+            target_size = down_x[i + 1].shape[2:]
+            if x_up.shape[2:] != target_size:
+                x_up = F.interpolate(x_up, size=target_size, mode='bilinear', align_corners=False)
+            x = x_up + down_x[i + 1]
+            x = upl(x)
+        return x
+
+    # Backward-compatibility wrapper for change decoder path
     def decode(self, x: torch.Tensor, down_x: list[torch.Tensor]) -> torch.Tensor:
-        for i, (up, upl) in enumerate(zip(self.up_samples, self.srcm_decoder_layers)):
+        return self._decode_with_layers(x, down_x, self.up_samples, self.srcm_decoder_layers)
             x_up = up(x)
             # Ensure spatial dimensions match for skip connection
             target_size = down_x[i + 1].shape[2:]
@@ -417,8 +433,8 @@ class CDMamba(nn.Module):
         # Also decode for T1 and T2 (for segmentation)
         down_x1.reverse()
         down_x2.reverse()
-        seg1 = self.decode(x1_latent, down_x1)
-        seg2 = self.decode(x2_latent, down_x2)
+        seg1 = self._decode_with_layers(x1_latent, down_x1, self.up_samples_seg_t1, self.srcm_decoder_layers_seg_t1)
+        seg2 = self._decode_with_layers(x2_latent, down_x2, self.up_samples_seg_t2, self.srcm_decoder_layers_seg_t2)
         seg_logits_t1 = self.seg_head_t1(seg1)
         seg_logits_t2 = self.seg_head_t2(seg2)
         if self.use_transition_head:
