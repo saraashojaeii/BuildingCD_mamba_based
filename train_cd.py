@@ -395,15 +395,21 @@ if __name__ == '__main__':
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
                     # Robust label extraction - data automatically on correct device
-                    if 'L1' in test_data:
+                    if 'L1' in test_data and 'L2' in test_data:
                         seg_t1 = test_data['L1']
                         seg_t2 = test_data['L2']
-                        change = test_data['change']
                     else:
-                        # Fallback for older data format
-                        seg_t1 = test_data['L']  # Assuming 'L' is the label
-                        seg_t2 = test_data['L']  # You might need to adjust this
-                        change = test_data['L']  # You might need to adjust this
+                        # Fallback for older single-label format
+                        seg_t1 = seg_t2 = test_data.get('L')
+
+                    # Obtain change mask if provided; otherwise derive binary mask from seg labels
+                    if 'change' in test_data:
+                        change = test_data['change']
+                    elif seg_t1 is not None and seg_t2 is not None:
+                        # derive binary change: 1 where labels differ
+                        change = (seg_t1 != seg_t2).long()
+                    else:
+                        change = None
 
                     outputs = cd_model(test_img1, test_img2)
                     # Only use change head for metric and visuals
@@ -417,7 +423,12 @@ if __name__ == '__main__':
                     binary_pred = (from_class != to_class).int()
                     
                     # Get ground truth
-                    gt = test_data['change'].to(device) if 'change' in test_data else test_data['L'].to(device)
+                    if 'change' in test_data:
+                        gt = test_data['change'].to(device)
+                    elif change is not None:
+                        gt = change.to(device)
+                    else:
+                        gt = (seg_t1 != seg_t2).long().to(device)
 
                     # Visuals
                     out_dict = OrderedDict()
