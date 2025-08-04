@@ -519,12 +519,13 @@ if __name__ == '__main__':
                         elif val_pred_np.ndim > val_gt_np.ndim:
                             val_pred_np = val_pred_np.squeeze()
                         
-                        # If still mismatched, resize to match
+                        # If still mismatched, resize to match using PyTorch interpolation
                         if val_gt_np.shape != val_pred_np.shape:
                             logger.warning(f"Shape mismatch in validation: gt={val_gt_np.shape}, pred={val_pred_np.shape}")
-                            # Resize ground truth to match prediction shape
-                            from skimage.transform import resize
-                            val_gt_np = resize(val_gt_np, val_pred_np.shape, order=0, preserve_range=True, anti_aliasing=False).astype(np.uint8)
+                            # Convert to tensor, resize, then back to numpy
+                            val_gt_tensor = torch.from_numpy(val_gt_np).float().unsqueeze(0).unsqueeze(0)  # Add batch and channel dims
+                            val_gt_resized = F.interpolate(val_gt_tensor, size=val_pred_np.shape[-2:], mode='nearest')
+                            val_gt_np = val_gt_resized.squeeze().numpy().astype(np.uint8)
                     
                     val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
                     
