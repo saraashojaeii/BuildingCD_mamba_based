@@ -246,10 +246,10 @@ if __name__ == '__main__':
                 outputs = cd_model(train_im1, train_im2)
                 
                 # Debug: Check for NaN in model outputs
-                for i, output in enumerate(outputs):
-                    if torch.isnan(output).any() or torch.isinf(output).any():
-                        logger.warning(f"NaN/Inf detected in model output {i}: nan={torch.isnan(output).sum()}, inf={torch.isinf(output).sum()}")
-                        logger.warning(f"Output {i} stats: min={output.min()}, max={output.max()}, mean={output.mean()}")
+                # for i, output in enumerate(outputs):
+                #     if torch.isnan(output).any() or torch.isinf(output).any():
+                #         logger.warning(f"NaN/Inf detected in model output {i}: nan={torch.isnan(output).sum()}, inf={torch.isinf(output).sum()}")
+                #         logger.warning(f"Output {i} stats: min={output.min()}, max={output.max()}, mean={output.mean()}")
                 
                 # Clear input tensors from memory immediately after forward pass
                 del train_im1, train_im2
@@ -257,17 +257,17 @@ if __name__ == '__main__':
 
                 if isinstance(loss_fun, MultiClassCDLoss):
                     # Debug: Check input data for NaN/Inf
-                    for name, tensor in [('seg_t1', seg_t1), ('seg_t2', seg_t2), ('change', change)]:
-                        if torch.isnan(tensor).any() or torch.isinf(tensor).any():
-                            logger.warning(f"NaN/Inf detected in {name}: nan={torch.isnan(tensor).sum()}, inf={torch.isinf(tensor).sum()}")
-                            logger.warning(f"{name} stats: min={tensor.min()}, max={tensor.max()}, shape={tensor.shape}")
+                    # for name, tensor in [('seg_t1', seg_t1), ('seg_t2', seg_t2), ('change', change)]:
+                    #     if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+                    #         logger.warning(f"NaN/Inf detected in {name}: nan={torch.isnan(tensor).sum()}, inf={torch.isinf(tensor).sum()}")
+                    #         logger.warning(f"{name} stats: min={tensor.min()}, max={tensor.max()}, shape={tensor.shape}")
                     
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
                     # Temporarily disable mixed precision to debug NaN
                     train_loss, loss_dict = loss_fun(outputs, labels)
                     
                     # Debug: Check individual loss components
-                    logger.info(f"Step {current_step}: Loss components - seg_t1: {loss_dict['seg_t1']:.6f}, seg_t2: {loss_dict['seg_t2']:.6f}, change: {loss_dict['change']:.6f}, total: {train_loss.item():.6f}")
+                    # logger.info(f"Step {current_step}: Loss components - seg_t1: {loss_dict['seg_t1']:.6f}, seg_t2: {loss_dict['seg_t2']:.6f}, change: {loss_dict['change']:.6f}, total: {train_loss.item():.6f}")
                     # Scale loss for gradient accumulation
                     train_loss = train_loss / accumulation_steps
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
@@ -374,13 +374,13 @@ if __name__ == '__main__':
                 
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
-                    logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Loss value: {train_loss.item()}")
-                    logger.warning(f"Model parameter stats:")
-                    for name, param in cd_model.named_parameters():
-                        if param.grad is not None:
-                            logger.warning(f"  {name}: grad_norm={param.grad.norm():.6f}")
-                        if torch.isnan(param).any():
-                            logger.warning(f"  {name}: contains NaN parameters!")
+                    logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Skipping this batch.")
+                    # logger.warning(f"Model parameter stats:")
+                    # for name, param in cd_model.named_parameters():
+                    #     if param.grad is not None:
+                    #         logger.warning(f"  {name}: grad_norm={param.grad.norm():.6f}")
+                    #     if torch.isnan(param).any():
+                    #         logger.warning(f"  {name}: contains NaN parameters!")
                     optimer.zero_grad()
                     continue
                 
