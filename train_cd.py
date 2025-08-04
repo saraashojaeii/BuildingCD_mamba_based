@@ -506,8 +506,26 @@ if __name__ == '__main__':
                     val_to_class = val_G_pred % n_classes
                     val_binary_pred = (val_from_class != val_to_class).int()
                     
+                    # Ensure both arrays have the same shape for metric calculation
                     val_gt_np = (val_change.cpu().numpy() > 0).astype(np.uint8)
                     val_pred_np = val_binary_pred.cpu().numpy()
+                    
+                    # Handle potential shape mismatches
+                    if val_gt_np.shape != val_pred_np.shape:
+                        # If ground truth has extra dimensions, squeeze them
+                        if val_gt_np.ndim > val_pred_np.ndim:
+                            val_gt_np = val_gt_np.squeeze()
+                        # If prediction has extra dimensions, squeeze them
+                        elif val_pred_np.ndim > val_gt_np.ndim:
+                            val_pred_np = val_pred_np.squeeze()
+                        
+                        # If still mismatched, resize to match
+                        if val_gt_np.shape != val_pred_np.shape:
+                            logger.warning(f"Shape mismatch in validation: gt={val_gt_np.shape}, pred={val_pred_np.shape}")
+                            # Resize ground truth to match prediction shape
+                            from skimage.transform import resize
+                            val_gt_np = resize(val_gt_np, val_pred_np.shape, order=0, preserve_range=True, anti_aliasing=False).astype(np.uint8)
+                    
                     val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
                     
                     # Log validation visualizations for first batch of each epoch
