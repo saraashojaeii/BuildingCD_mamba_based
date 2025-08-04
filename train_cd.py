@@ -134,6 +134,22 @@ if __name__ == '__main__':
 
     #Create cd model
     cd_model = Model.create_CD_model(opt)
+    
+    # Initialize model weights to prevent NaN loss
+    def init_weights(m):
+        if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+    
+    cd_model.apply(init_weights)
     cd_model.to(device)
     
     # Enable gradient checkpointing if available to save memory
@@ -323,13 +339,23 @@ if __name__ == '__main__':
                 change_pred = outputs[2].detach()  # [B, num_classes*num_classes, H, W]
                 change_gt = change.detach()  # Save ground truth too
                 
+                # Check for NaN loss before backward pass
+                if torch.isnan(train_loss) or torch.isinf(train_loss):
+                    logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Skipping this batch.")
+                    optimizer.zero_grad()
+                    continue
+                
                 # Gradient accumulation with mixed precision
                 scaler.scale(train_loss).backward()
                 
                 if (current_step + 1) % accumulation_steps == 0 or (current_step + 1) == len(train_loader):
-                    scaler.step(optimer)
+                    # Gradient clipping to prevent explosion
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(cd_model.parameters(), max_norm=1.0)
+                    
+                    scaler.step(optimizer)
                     scaler.update()
-                    optimer.zero_grad()
+                    optimizer.zero_grad()
                     # Clear gradients from memory
                     torch.cuda.empty_cache()
                     
@@ -419,13 +445,19 @@ if __name__ == '__main__':
                     if opt['model']['loss'] == 'multi_class_cd':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
                         with torch.cuda.amp.autocast():
-                            val_loss = loss_fun(val_seg_logits_t1, val_seg_logits_t2, val_change_pred, 
-                                               val_seg_t1, val_seg_t2, val_change)
+                            # Pack targets into dictionary format expected by MultiClassCDLoss
+                            val_targets = {
+                                "seg_t1": val_seg_t1,
+                                "seg_t2": val_seg_t2, 
+                                "change": val_change
+                            }
+                            val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     else:
                         val_change_pred = val_outputs[2] if len(val_outputs) > 2 else val_outputs[0]
                         with torch.cuda.amp.autocast():
                             val_loss = loss_fun(val_change_pred, val_change)
                         val_seg_logits_t1 = val_seg_logits_t2 = torch.zeros_like(val_change_pred)
+                        val_loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                     
                     val_loss_total += val_loss.item()
                     val_steps += 1

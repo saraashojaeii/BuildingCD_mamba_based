@@ -49,8 +49,8 @@
     "name" : "cdmamba",
     "loss" : "multi_class_cd",
     "loss_weights": {
-      "seg_t1": 2.0,
-      "seg_t2": 2.0,
+      "seg_t1": 1.0,
+      "seg_t2": 1.0,
       "change": 1.0
     },
     "init_filters" : 16,
@@ -78,7 +78,7 @@
     "val_print_iter" : 50,
     "optimizer" :{
       "type" : "adam",
-      "lr" : 1e-3
+      "lr" : 1e-4
     },
     "sheduler" : {
       "lr_policy" : "linear",
