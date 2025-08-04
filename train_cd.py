@@ -378,8 +378,130 @@ if __name__ == '__main__':
             ### Epoch Summary ###
             scores = metric.get_scores()
             epoch_acc = scores['mf1']
-            # ... (rest of the code remains the same)
-
+            
+            # Log training epoch summary
+            wandb.log({
+                'train/epoch_mF1': epoch_acc,
+                'train/epoch_mIoU': scores.get('mIoU', 0),
+                'train/epoch_OA': scores.get('OA', 0),
+                'epoch': current_epoch
+            })
+            
+            ### VALIDATION LOOP ###
+            logger.info('Starting validation...')
+            val_metric = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
+            cd_model.eval()
+            val_loss_total = 0.0
+            val_steps = 0
+            
+            with torch.no_grad():
+                for val_step, val_data in enumerate(val_loader):
+                    val_img1 = val_data['A'].to(device)
+                    val_img2 = val_data['B'].to(device)
+                    
+                    # Handle validation labels same as training
+                    if 'L1' in val_data and 'L2' in val_data:
+                        val_seg_t1 = val_data['L1'].to(device)
+                        val_seg_t2 = val_data['L2'].to(device)
+                    else:
+                        val_seg_t1 = val_seg_t2 = val_data.get('L', torch.zeros_like(val_img1[:, :1])).to(device)
+                    
+                    if 'change' in val_data:
+                        val_change = val_data['change'].to(device)
+                    elif val_seg_t1 is not None and val_seg_t2 is not None:
+                        val_change = (val_seg_t1 != val_seg_t2).long()
+                    else:
+                        val_change = torch.zeros_like(val_img1[:, :1]).long().to(device)
+                    
+                    # Forward pass
+                    val_outputs = cd_model(val_img1, val_img2)
+                    
+                    if opt['model']['loss'] == 'multi_class_cd':
+                        val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
+                        with torch.cuda.amp.autocast():
+                            val_loss = loss_fun(val_seg_logits_t1, val_seg_logits_t2, val_change_pred, 
+                                               val_seg_t1, val_seg_t2, val_change)
+                    else:
+                        val_change_pred = val_outputs[2] if len(val_outputs) > 2 else val_outputs[0]
+                        with torch.cuda.amp.autocast():
+                            val_loss = loss_fun(val_change_pred, val_change)
+                        val_seg_logits_t1 = val_seg_logits_t2 = torch.zeros_like(val_change_pred)
+                    
+                    val_loss_total += val_loss.item()
+                    val_steps += 1
+                    
+                    # Update validation metrics
+                    val_G_pred = torch.argmax(val_change_pred.detach(), dim=1)
+                    n_classes = opt['model']['n_classes']
+                    val_from_class = val_G_pred // n_classes
+                    val_to_class = val_G_pred % n_classes
+                    val_binary_pred = (val_from_class != val_to_class).int()
+                    
+                    val_gt_np = (val_change.cpu().numpy() > 0).astype(np.uint8)
+                    val_pred_np = val_binary_pred.cpu().numpy()
+                    val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
+                    
+                    # Log validation visualizations for first batch of each epoch
+                    if val_step == 0 and current_epoch % 1 == 0:
+                        with torch.no_grad():
+                            val_pred_seg_t1 = torch.argmax(val_seg_logits_t1, dim=1)
+                            val_pred_seg_t2 = torch.argmax(val_seg_logits_t2, dim=1)
+                            val_pred_change = torch.argmax(val_change_pred, dim=1)
+                        
+                        # Handle ground truth masks same as training
+                        val_seg_t1_np = val_seg_t1[0].detach().cpu().numpy()
+                        val_seg_t2_np = val_seg_t2[0].detach().cpu().numpy()
+                        
+                        if val_seg_t1_np.ndim == 3 and val_seg_t1_np.shape[2] == 3:
+                            max_val = val_seg_t1_np.max()
+                            if max_val > 0:
+                                val_gt_seg_t1_img = ((val_seg_t1_np / max_val) * 255).astype(np.uint8)
+                            else:
+                                val_gt_seg_t1_img = val_seg_t1_np.astype(np.uint8)
+                        else:
+                            val_gt_seg_t1_img = create_color_mask(val_seg_t1[0], num_classes=num_classes)
+                        
+                        if val_seg_t2_np.ndim == 3 and val_seg_t2_np.shape[2] == 3:
+                            max_val = val_seg_t2_np.max()
+                            if max_val > 0:
+                                val_gt_seg_t2_img = ((val_seg_t2_np / max_val) * 255).astype(np.uint8)
+                            else:
+                                val_gt_seg_t2_img = val_seg_t2_np.astype(np.uint8)
+                        else:
+                            val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=num_classes)
+                        
+                        wandb.log({
+                            "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=num_classes), caption="Val Pred Seg T1 (multi-class)")],
+                            "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=num_classes), caption="Val Pred Seg T2 (multi-class)")],
+                            "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=num_classes * num_classes), caption="Val Pred Change (multi-class)")],
+                            "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
+                            "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
+                            "val/gt_change": [wandb.Image(create_color_mask(val_change[0], num_classes=num_classes * num_classes), caption="Val GT Change")],
+                            "global_step": current_epoch * len(train_loader) + len(train_loader)
+                        })
+                    
+                    # Clean up validation tensors
+                    del val_outputs, val_change_pred, val_G_pred, val_binary_pred
+                    torch.cuda.empty_cache()
+            
+            # Log validation epoch summary
+            val_scores = val_metric.get_scores()
+            val_epoch_acc = val_scores['mf1']
+            avg_val_loss = val_loss_total / val_steps if val_steps > 0 else 0.0
+            
+            wandb.log({
+                'val/epoch_loss': avg_val_loss,
+                'val/epoch_mF1': val_epoch_acc,
+                'val/epoch_mIoU': val_scores.get('mIoU', 0),
+                'val/epoch_OA': val_scores.get('OA', 0),
+                'epoch': current_epoch
+            })
+            
+            logger.info(f'Validation - Epoch: {current_epoch}, Loss: {avg_val_loss:.5f}, mF1: {val_epoch_acc:.5f}')
+            
+            # Reset model to training mode
+            cd_model.train()
+            
             # Load the best model for testing
             gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
             if os.path.exists(gen_path):
@@ -485,14 +607,4 @@ if __name__ == '__main__':
                 logger_test.info(message)
                 logger.info('End of testing...')
 
-            if current_step == 0 and current_epoch % 1 == 0:
-                # Reuse create_color_mask function for validation visualizations
-                wandb.log({
-                    "val/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0]), caption="Val Pred Seg T1 (multi-class)")],
-                    "val/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0]), caption="Val Pred Seg T2 (multi-class)")],
-                    "val/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes']*opt['model']['n_classes']), caption="Val Pred Change (multi-class)")],
-                    "val/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0]), caption="Val GT Seg T1 (multi-class)")],
-                    "val/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0]), caption="Val GT Seg T2 (multi-class)")],
-                    "val/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes']*opt['model']['n_classes']), caption="Val GT Change (multi-class)")],
-                    "global_step": current_epoch * len(val_loader) + current_step
-                })
+            # Note: Validation logging is now handled in the validation loop above
