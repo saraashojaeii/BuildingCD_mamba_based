@@ -393,15 +393,7 @@ class CDMamba(nn.Module):
     # Backward-compatibility wrapper for change decoder path
     def decode(self, x: torch.Tensor, down_x: list[torch.Tensor]) -> torch.Tensor:
         return self._decode_with_layers(x, down_x, self.up_samples, self.srcm_decoder_layers)
-            x_up = up(x)
-            # Ensure spatial dimensions match for skip connection
-            target_size = down_x[i + 1].shape[2:]
-            if x_up.shape[2:] != target_size:
-                x_up = F.interpolate(x_up, size=target_size, mode='bilinear', align_corners=False)
 
-            x = x_up + down_x[i + 1]
-            x = upl(x)
-        return x
 
     def forward(self, x1: torch.Tensor, x2: torch.Tensor):
         """
