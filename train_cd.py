@@ -522,10 +522,24 @@ if __name__ == '__main__':
                         # If still mismatched, resize to match using PyTorch interpolation
                         if val_gt_np.shape != val_pred_np.shape:
                             logger.warning(f"Shape mismatch in validation: gt={val_gt_np.shape}, pred={val_pred_np.shape}")
-                            # Convert to tensor, resize, then back to numpy
-                            val_gt_tensor = torch.from_numpy(val_gt_np).float().unsqueeze(0).unsqueeze(0)  # Add batch and channel dims
-                            val_gt_resized = F.interpolate(val_gt_tensor, size=val_pred_np.shape[-2:], mode='nearest')
-                            val_gt_np = val_gt_resized.squeeze().numpy().astype(np.uint8)
+                            
+                            # Handle different tensor formats
+                            if val_gt_np.ndim == 4 and val_gt_np.shape[-1] == 3:  # NHWC format (channels last)
+                                # Take first channel and remove channel dimension
+                                val_gt_np = val_gt_np[..., 0]  # Shape: (N, H, W)
+                            elif val_gt_np.ndim == 3 and val_pred_np.ndim == 3:
+                                # Both are 3D, try to match shapes by interpolation
+                                val_gt_tensor = torch.from_numpy(val_gt_np).float().unsqueeze(1)  # Add channel dim: (N, 1, H, W)
+                                val_gt_resized = F.interpolate(val_gt_tensor, size=val_pred_np.shape[-2:], mode='nearest')
+                                val_gt_np = val_gt_resized.squeeze(1).numpy().astype(np.uint8)  # Remove channel dim
+                            
+                            # Final shape check
+                            if val_gt_np.shape != val_pred_np.shape:
+                                logger.warning(f"Still mismatched after processing: gt={val_gt_np.shape}, pred={val_pred_np.shape}")
+                                # As last resort, flatten both and take minimum length
+                                min_size = min(val_gt_np.size, val_pred_np.size)
+                                val_gt_np = val_gt_np.flatten()[:min_size].reshape(-1)
+                                val_pred_np = val_pred_np.flatten()[:min_size].reshape(-1)
                     
                     val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
                     
