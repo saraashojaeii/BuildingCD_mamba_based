@@ -263,20 +263,38 @@ if __name__ == '__main__':
                     
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                     if current_step == 0 and current_epoch % 1 == 0:
+                        # Handle ground truth masks - check if they're already RGB or need color mapping
+                        seg_t1_np = seg_t1[0].detach().cpu().numpy()
+                        seg_t2_np = seg_t2[0].detach().cpu().numpy()
                         
-                    
-                    
+                        # If ground truth is already RGB (3 channels), scale it properly
+                        if seg_t1_np.ndim == 3 and seg_t1_np.shape[2] == 3:
+                            # Scale from 0-max_val to 0-255 for proper display
+                            max_val = seg_t1_np.max()
+                            if max_val > 0:
+                                gt_seg_t1_img = ((seg_t1_np / max_val) * 255).astype(np.uint8)
+                            else:
+                                gt_seg_t1_img = seg_t1_np.astype(np.uint8)
+                        else:
+                            gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes'])
+                        
+                        if seg_t2_np.ndim == 3 and seg_t2_np.shape[2] == 3:
+                            # Scale from 0-max_val to 0-255 for proper display
+                            max_val = seg_t2_np.max()
+                            if max_val > 0:
+                                gt_seg_t2_img = ((seg_t2_np / max_val) * 255).astype(np.uint8)
+                            else:
+                                gt_seg_t2_img = seg_t2_np.astype(np.uint8)
+                        else:
+                            gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes'])
+                        
                         wandb.log({
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
                             "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
                             "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Pred Change (multi-class)")],
-                        
-                            # These are already colorized — just send directly
-                            "train/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes']), caption="GT Seg T1 (multi-class)")],
-                            "train/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes']), caption="GT Seg T2 (multi-class)")],
-                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change (multi-class)")],
-
-                        
+                            "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
+                            "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
+                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
 
@@ -342,7 +360,7 @@ if __name__ == '__main__':
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
                     logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Skipping this batch.")
-                    optimizer.zero_grad()
+                    optimer.zero_grad()
                     continue
                 
                 # Gradient accumulation with mixed precision
@@ -350,12 +368,12 @@ if __name__ == '__main__':
                 
                 if (current_step + 1) % accumulation_steps == 0 or (current_step + 1) == len(train_loader):
                     # Gradient clipping to prevent explosion
-                    scaler.unscale_(optimizer)
+                    scaler.unscale_(optimer)
                     torch.nn.utils.clip_grad_norm_(cd_model.parameters(), max_norm=1.0)
                     
-                    scaler.step(optimizer)
+                    scaler.step(optimer)
                     scaler.update()
-                    optimizer.zero_grad()
+                    optimer.zero_grad()
                     # Clear gradients from memory
                     torch.cuda.empty_cache()
                     
@@ -491,7 +509,7 @@ if __name__ == '__main__':
                             else:
                                 val_gt_seg_t1_img = val_seg_t1_np.astype(np.uint8)
                         else:
-                            val_gt_seg_t1_img = create_color_mask(val_seg_t1[0], num_classes=num_classes)
+                            val_gt_seg_t1_img = create_color_mask(val_seg_t1[0], num_classes=opt['model']['n_classes'])
                         
                         if val_seg_t2_np.ndim == 3 and val_seg_t2_np.shape[2] == 3:
                             max_val = val_seg_t2_np.max()
@@ -500,15 +518,15 @@ if __name__ == '__main__':
                             else:
                                 val_gt_seg_t2_img = val_seg_t2_np.astype(np.uint8)
                         else:
-                            val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=num_classes)
+                            val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
                         wandb.log({
-                            "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=num_classes), caption="Val Pred Seg T1 (multi-class)")],
-                            "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=num_classes), caption="Val Pred Seg T2 (multi-class)")],
-                            "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=num_classes * num_classes), caption="Val Pred Change (multi-class)")],
+                            "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
+                            "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
+                            "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val Pred Change (multi-class)")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
-                            "val/gt_change": [wandb.Image(create_color_mask(val_change[0], num_classes=num_classes * num_classes), caption="Val GT Change")],
+                            "val/gt_change": [wandb.Image(create_color_mask(val_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val GT Change")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
                     
