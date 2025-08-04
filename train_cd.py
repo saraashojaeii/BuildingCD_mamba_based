@@ -677,9 +677,30 @@ if __name__ == '__main__':
                         visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
                         img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
                         img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
-                        gt_cm = Metrics.tensor2img(visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1), out_type=np.uint8,
+                        # Handle tensor dimensions properly for visualization
+                        gt_tensor = visuals['gt_cm']
+                        pred_tensor = visuals['pred_cm']
+                        
+                        # Ensure tensors are in correct format (B, H, W) before adding channel dimension
+                        if gt_tensor.dim() > 3:
+                            gt_tensor = gt_tensor.squeeze()  # Remove extra dimensions
+                        if pred_tensor.dim() > 3:
+                            pred_tensor = pred_tensor.squeeze()  # Remove extra dimensions
+                            
+                        # Add channel dimension and repeat for RGB
+                        if gt_tensor.dim() == 3:  # (B, H, W)
+                            gt_tensor = gt_tensor.unsqueeze(1)  # (B, 1, H, W)
+                        elif gt_tensor.dim() == 2:  # (H, W)
+                            gt_tensor = gt_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                            
+                        if pred_tensor.dim() == 3:  # (B, H, W)
+                            pred_tensor = pred_tensor.unsqueeze(1)  # (B, 1, H, W)
+                        elif pred_tensor.dim() == 2:  # (H, W)
+                            pred_tensor = pred_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                        
+                        gt_cm = Metrics.tensor2img(gt_tensor.repeat(1, 3, 1, 1), out_type=np.uint8,
                                                    min_max=(0, 1))  # uint8
-                        pred_cm = Metrics.tensor2img(visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                        pred_cm = Metrics.tensor2img(pred_tensor.repeat(1, 3, 1, 1),
                                                      out_type=np.uint8, min_max=(0, 1))  # uint8
 
                         # Save imgs
