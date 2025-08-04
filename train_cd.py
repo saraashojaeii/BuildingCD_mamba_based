@@ -482,18 +482,18 @@ if __name__ == '__main__':
                     
                     if opt['model']['loss'] == 'multi_class_cd':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
-                        with torch.cuda.amp.autocast():
-                            # Pack targets into dictionary format expected by MultiClassCDLoss
-                            val_targets = {
-                                "seg_t1": val_seg_t1,
-                                "seg_t2": val_seg_t2, 
-                                "change": val_change
-                            }
-                            val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
+                        # Temporarily disable mixed precision to debug NaN (consistent with training)
+                        # Pack targets into dictionary format expected by MultiClassCDLoss
+                        val_targets = {
+                            "seg_t1": val_seg_t1,
+                            "seg_t2": val_seg_t2, 
+                            "change": val_change
+                        }
+                        val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     else:
                         val_change_pred = val_outputs[2] if len(val_outputs) > 2 else val_outputs[0]
-                        with torch.cuda.amp.autocast():
-                            val_loss = loss_fun(val_change_pred, val_change)
+                        # Temporarily disable mixed precision to debug NaN (consistent with training)
+                        val_loss = loss_fun(val_change_pred, val_change)
                         val_seg_logits_t1 = val_seg_logits_t2 = torch.zeros_like(val_change_pred)
                         val_loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                     
@@ -575,13 +575,17 @@ if __name__ == '__main__':
                         else:
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
+                        # Create binary ground truth change visualization
+                        val_change_binary = (val_change[0] > 0).float()  # Convert to binary (0 or 1)
+                        val_change_binary_img = create_color_mask(val_change_binary, num_classes=2)  # Binary visualization
+                        
                         wandb.log({
                             "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
                             "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
                             "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val Pred Change (multi-class)")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
-                            "val/gt_change": [wandb.Image(create_color_mask(val_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val GT Change")],
+                            "val/gt_change": [wandb.Image(val_change_binary_img, caption="Val GT Change (binary)")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
                     
@@ -656,6 +660,9 @@ if __name__ == '__main__':
                         gt = change.to(device)
                     else:
                         gt = (seg_t1 != seg_t2).long().to(device)
+                    
+                    # Create binary ground truth for visualization
+                    gt_binary = (gt > 0).int()  # Convert to binary (0 or 1)
 
                     # Visuals
                     out_dict = OrderedDict()
