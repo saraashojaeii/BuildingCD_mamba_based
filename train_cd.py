@@ -135,17 +135,17 @@ if __name__ == '__main__':
     #Create cd model
     cd_model = Model.create_CD_model(opt)
     
-    # Initialize model weights to prevent NaN loss
+    # Initialize model weights to prevent NaN loss - more conservative
     def init_weights(m):
         if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.xavier_normal_(m.weight, gain=0.1)  # Very small gain
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Linear):
-            nn.init.normal_(m.weight, 0, 0.01)
+            nn.init.normal_(m.weight, 0, 0.001)  # Very small std
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
     
@@ -242,17 +242,32 @@ if __name__ == '__main__':
                 change = (train_data['change'] if 'change' in train_data else train_data['L']).to(device)
 
                 # Use gradient checkpointing to save memory
-                with torch.cuda.amp.autocast():  # Mixed precision
-                    outputs = cd_model(train_im1, train_im2)
+                # Temporarily disable mixed precision to debug NaN
+                outputs = cd_model(train_im1, train_im2)
+                
+                # Debug: Check for NaN in model outputs
+                for i, output in enumerate(outputs):
+                    if torch.isnan(output).any() or torch.isinf(output).any():
+                        logger.warning(f"NaN/Inf detected in model output {i}: nan={torch.isnan(output).sum()}, inf={torch.isinf(output).sum()}")
+                        logger.warning(f"Output {i} stats: min={output.min()}, max={output.max()}, mean={output.mean()}")
                 
                 # Clear input tensors from memory immediately after forward pass
                 del train_im1, train_im2
                 torch.cuda.empty_cache()
 
                 if isinstance(loss_fun, MultiClassCDLoss):
+                    # Debug: Check input data for NaN/Inf
+                    for name, tensor in [('seg_t1', seg_t1), ('seg_t2', seg_t2), ('change', change)]:
+                        if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+                            logger.warning(f"NaN/Inf detected in {name}: nan={torch.isnan(tensor).sum()}, inf={torch.isinf(tensor).sum()}")
+                            logger.warning(f"{name} stats: min={tensor.min()}, max={tensor.max()}, shape={tensor.shape}")
+                    
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
-                    with torch.cuda.amp.autocast():
-                        train_loss, loss_dict = loss_fun(outputs, labels)
+                    # Temporarily disable mixed precision to debug NaN
+                    train_loss, loss_dict = loss_fun(outputs, labels)
+                    
+                    # Debug: Check individual loss components
+                    logger.info(f"Step {current_step}: Loss components - seg_t1: {loss_dict['seg_t1']:.6f}, seg_t2: {loss_dict['seg_t2']:.6f}, change: {loss_dict['change']:.6f}, total: {train_loss.item():.6f}")
                     # Scale loss for gradient accumulation
                     train_loss = train_loss / accumulation_steps
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
@@ -302,8 +317,8 @@ if __name__ == '__main__':
                 else:
                     # Assumes binary loss on the change prediction head
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
-                    with torch.cuda.amp.autocast():
-                        train_loss = loss_fun(change_pred, change)
+                    # Temporarily disable mixed precision to debug NaN
+                    train_loss = loss_fun(change_pred, change)
                     # Scale loss for gradient accumulation
                     train_loss = train_loss / accumulation_steps
                     # Create a dummy loss_dict for logging consistency
@@ -359,20 +374,24 @@ if __name__ == '__main__':
                 
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
-                    logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Skipping this batch.")
+                    logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Loss value: {train_loss.item()}")
+                    logger.warning(f"Model parameter stats:")
+                    for name, param in cd_model.named_parameters():
+                        if param.grad is not None:
+                            logger.warning(f"  {name}: grad_norm={param.grad.norm():.6f}")
+                        if torch.isnan(param).any():
+                            logger.warning(f"  {name}: contains NaN parameters!")
                     optimer.zero_grad()
                     continue
                 
-                # Gradient accumulation with mixed precision
-                scaler.scale(train_loss).backward()
+                # Gradient accumulation without mixed precision for debugging
+                train_loss.backward()
                 
                 if (current_step + 1) % accumulation_steps == 0 or (current_step + 1) == len(train_loader):
                     # Gradient clipping to prevent explosion
-                    scaler.unscale_(optimer)
-                    torch.nn.utils.clip_grad_norm_(cd_model.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(cd_model.parameters(), max_norm=0.5)  # More aggressive clipping
                     
-                    scaler.step(optimer)
-                    scaler.update()
+                    optimer.step()
                     optimer.zero_grad()
                     # Clear gradients from memory
                     torch.cuda.empty_cache()
