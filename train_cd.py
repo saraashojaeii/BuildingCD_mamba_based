@@ -456,6 +456,7 @@ if __name__ == '__main__':
             cd_model.eval()
             val_loss_total = 0.0
             val_steps = 0
+            shape_mismatch_logged = False  # Flag to log shape mismatch only once per epoch
             
             with torch.no_grad():
                 for val_step, val_data in enumerate(val_loader):
@@ -521,7 +522,9 @@ if __name__ == '__main__':
                         
                         # If still mismatched, resize to match using PyTorch interpolation
                         if val_gt_np.shape != val_pred_np.shape:
-                            logger.warning(f"Shape mismatch in validation: gt={val_gt_np.shape}, pred={val_pred_np.shape}")
+                            if not shape_mismatch_logged:
+                                logger.info(f"Validation shape mismatch (expected): gt={val_gt_np.shape}, pred={val_pred_np.shape} - handling automatically")
+                                shape_mismatch_logged = True
                             
                             # Handle different tensor formats
                             if val_gt_np.ndim == 4 and val_gt_np.shape[-1] == 3:  # NHWC format (channels last)
