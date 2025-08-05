@@ -621,6 +621,11 @@ if __name__ == '__main__':
             cd_model.to(device)
             metric.clear()
             cd_model.eval()
+            
+            # Create test result directory
+            test_result_path = '{}/test'.format(opt['path_cd']['result'])
+            os.makedirs(test_result_path, exist_ok=True)
+            
             with torch.no_grad():
                 for current_step, test_data in enumerate(test_loader):
                     test_img1 = test_data['A'].to(device)
