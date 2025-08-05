@@ -100,8 +100,21 @@ if __name__ == '__main__':
     logger = logging.getLogger('base')
     logger.info(Logger.dict2str(opt))
 
+    # Set device with comprehensive debugging
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f'Using device: {device}')
     
+    # GPU Debugging Information
+    logger.info(f'CUDA Available: {torch.cuda.is_available()}')
+    if torch.cuda.is_available():
+        logger.info(f'CUDA Device Count: {torch.cuda.device_count()}')
+        logger.info(f'Current CUDA Device: {torch.cuda.current_device()}')
+        logger.info(f'CUDA Device Name: {torch.cuda.get_device_name()}')
+        logger.info(f'CUDA Memory Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB')
+        logger.info(f'CUDA Memory Cached: {torch.cuda.memory_reserved() / 1024**3:.2f} GB')
+    else:
+        logger.warning('CUDA is not available! Training will run on CPU (very slow)')
+
     # Initialize wandb only on main process
     if opt.get('wandb') and opt['wandb'].get('project'):
         wandb.init(project=opt['wandb']['project'], config=opt)
@@ -151,7 +164,17 @@ if __name__ == '__main__':
     
     cd_model.apply(init_weights)
     cd_model.to(device)
+    logger.info(f'CD Model moved to device: {device}')
     
+    # Verify model is actually on GPU
+    if torch.cuda.is_available():
+        model_device = next(cd_model.parameters()).device
+        logger.info(f'Model parameters are on device: {model_device}')
+        if model_device.type != 'cuda':
+            logger.error('WARNING: Model parameters are NOT on GPU!')
+        else:
+            logger.info('✓ Model successfully moved to GPU')
+
     # Enable gradient checkpointing if available to save memory
     if hasattr(cd_model, 'gradient_checkpointing_enable'):
         cd_model.gradient_checkpointing_enable()
@@ -427,11 +450,17 @@ if __name__ == '__main__':
                 log_dict['running_acc'] = current_score.item()
                 wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
 
-                # Logging
+                # Logging with GPU monitoring
                 if current_step % opt['train']['train_print_iter'] == 0:
-                    message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, running_mf1: %.5f\n' % (
+                    gpu_memory_info = ""
+                    if torch.cuda.is_available():
+                        gpu_memory_allocated = torch.cuda.memory_allocated() / 1024**3
+                        gpu_memory_cached = torch.cuda.memory_reserved() / 1024**3
+                        gpu_memory_info = f", GPU Memory: {gpu_memory_allocated:.2f}GB/{gpu_memory_cached:.2f}GB"
+                    
+                    message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, running_mf1: %.5f%s\n' % (
                         current_epoch, opt['train']['n_epoch'], current_step, len(train_loader), train_loss.item(),
-                        current_score.item())
+                        current_score.item(), gpu_memory_info)
                     logger.info(message)
                 
                 # Final cleanup of saved tensors
