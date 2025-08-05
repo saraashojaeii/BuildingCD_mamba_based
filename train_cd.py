@@ -771,7 +771,7 @@ if __name__ == '__main__':
                 for k, v in logs.items():
                     message += '{:s}: {:.4e} '.format(k, v)
                     message += '\n'
-                logger_test.info(message)
+                logger.info(message)
                 logger.info('End of testing...')
 
             # Note: Validation logging is now handled in the validation loop above
