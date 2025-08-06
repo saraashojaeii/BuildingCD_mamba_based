@@ -8,9 +8,9 @@
   },
 
   "path_cd": {
-    "log": "logs",
-    "result": "results",
-    "checkpoint": "checkpoint",
+    "log": "/root/home/pvc/Building_changedetection_job/experiments/logs",
+    "result": "/root/home/pvc/Building_changedetection_job/experiments/results",
+    "checkpoint": "/root/home/pvc/Building_changedetection_job/experiments/checkpoint",
     "resume_state": null
   },
 
