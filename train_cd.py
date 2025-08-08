@@ -414,13 +414,15 @@ if __name__ == '__main__':
                     else:
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
                     
+                    # Prepare binary GT change as black/white image
+                    train_gt_change_bw = ((change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
                         "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
                         "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                         "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(create_color_mask((change[0] > 0).long(), num_classes=2), caption="GT Change (binary)")],
+                        "train/gt_change": [wandb.Image(train_gt_change_bw, caption="GT Change (binary BW)")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
@@ -650,9 +652,8 @@ if __name__ == '__main__':
                         else:
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
-                        # Create binary ground truth change visualization
-                        val_change_binary = (val_change[0] > 0).float()  # Convert to binary (0 or 1)
-                        val_change_binary_img = create_color_mask(val_change_binary, num_classes=2)  # Binary visualization
+                        # Create binary ground truth change visualization (black/white)
+                        val_gt_change_bw = ((val_change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
                         
                         # Also log probability maps for validation debugging
                         val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
@@ -673,7 +674,7 @@ if __name__ == '__main__':
                             "val/pred_change_prob": [wandb.Image(val_change_max_prob, caption="Val Pred Change Max Probability")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
-                            "val/gt_change": [wandb.Image(val_change_binary_img, caption="Val GT Change (binary)")],
+                            "val/gt_change": [wandb.Image(val_gt_change_bw, caption="Val GT Change (binary BW)")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
                     
