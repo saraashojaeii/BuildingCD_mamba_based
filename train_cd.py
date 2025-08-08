@@ -370,8 +370,10 @@ if __name__ == '__main__':
                         b, _, h, w = change_pred.shape
                         seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=change_pred.device, dtype=change_pred.dtype)
                         seg_logits_t2 = torch.zeros_like(seg_logits_t1)
-                    # Create binary ground truth: 0 = no-change, 1 = change
+                    # Create binary ground truth: 0 = no-change, 1 = change (ensure shape [B,H,W])
                     change_bin = (change > 0).long()
+                    if change_bin.dim() == 4 and change_bin.size(1) == 1:
+                        change_bin = change_bin.squeeze(1)
                     # Compute loss against binary targets (use 2-class criterion)
                     train_loss = loss_fun_change(change_pred, change_bin)
                     # Scale loss for gradient accumulation
@@ -562,11 +564,26 @@ if __name__ == '__main__':
                         }
                         val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     else:
-                        val_change_pred = val_outputs[2] if len(val_outputs) > 2 else val_outputs[0]
-                        # Create binary ground truth for validation
+                        # Binary validation branch
+                        if isinstance(val_outputs, tuple) and len(val_outputs) >= 3:
+                            val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
+                        else:
+                            # Some models may return only change head
+                            val_change_pred = val_outputs[2] if isinstance(val_outputs, (list, tuple)) and len(val_outputs) > 2 else val_outputs
+                            b, _, h, w = val_change_pred.shape
+                            val_seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=val_change_pred.device, dtype=val_change_pred.dtype)
+                            val_seg_logits_t2 = torch.zeros_like(val_seg_logits_t1)
+                        # Create binary ground truth for validation (ensure [B,H,W])
                         val_change_bin = (val_change > 0).long()
-                        val_loss = loss_fun(val_change_pred, val_change_bin)
-                        val_seg_logits_t1 = val_seg_logits_t2 = torch.zeros_like(val_change_pred)
+                        if val_change_bin.dim() == 4 and val_change_bin.size(1) == 1:
+                            val_change_bin = val_change_bin.squeeze(1)
+                        # Use 2-class criterion
+                        val_loss = loss_fun_change(val_change_pred, val_change_bin)
+                        # For logging completeness if real seg logits weren't returned
+                        if 'val_seg_logits_t1' not in locals():
+                            b, _, h, w = val_change_pred.shape
+                            val_seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=val_change_pred.device, dtype=val_change_pred.dtype)
+                            val_seg_logits_t2 = torch.zeros_like(val_seg_logits_t1)
                         val_loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                     
                     val_loss_total += val_loss.item()
