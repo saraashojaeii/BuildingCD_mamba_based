@@ -182,18 +182,23 @@ if __name__ == '__main__':
     num_classes = opt['model']['n_classes']
     logger.info(f"Number of classes for loss function: {num_classes}")
 
-    #Create criterion
+    #Create criterion (segmentation losses use semantic num_classes; change head will use 2)
     if opt['model']['loss'] == 'ce_dice':
         loss_fun = CEDiceLoss(num_classes=num_classes)
+        loss_fun_change = CEDiceLoss(num_classes=2)
     elif opt['model']['loss'] == 'ce':
         # CrossEntropy can be used as a function or nn.Module. Using function for now.
-        loss_fun = cross_entropy_loss_fn 
+        loss_fun = cross_entropy_loss_fn
+        loss_fun_change = cross_entropy_loss_fn
     elif opt['model']['loss'] == 'dice':
         loss_fun = DiceOnlyLoss(num_classes=num_classes)
+        loss_fun_change = DiceOnlyLoss(num_classes=2)
     elif opt['model']['loss'] == 'ce2_dice1':
         loss_fun = CE2Dice1Loss(num_classes=num_classes)
+        loss_fun_change = CE2Dice1Loss(num_classes=2)
     elif opt['model']['loss'] == 'ce1_dice2':
         loss_fun = CE1Dice2Loss(num_classes=num_classes)
+        loss_fun_change = CE1Dice2Loss(num_classes=2)
     # Add other loss types if needed, e.g., for 'ce_scl'
     elif opt['model']['loss'] == 'multi_class_cd':
         loss_fun = MultiClassCDLoss(num_classes=num_classes, loss_weights=opt['model'].get('loss_weights'))
@@ -202,9 +207,14 @@ if __name__ == '__main__':
     else:
         raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
-    # If loss_fun is an nn.Module, move it to the device
+    # If losses are nn.Module, move them to the device
     if isinstance(loss_fun, nn.Module):
         loss_fun.to(device)
+    if 'loss_fun_change' in locals() and isinstance(loss_fun_change, nn.Module):
+        loss_fun_change.to(device)
+    # Fallback: if loss_fun_change wasn't defined (e.g., for unsupported options), reuse loss_fun
+    if 'loss_fun_change' not in locals():
+        loss_fun_change = loss_fun
 
     #Create optimizer
     if opt['train']["optimizer"]["type"] == 'adam':
@@ -355,8 +365,8 @@ if __name__ == '__main__':
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
                     # Create binary ground truth: 0 = no-change, 1 = change
                     change_bin = (change > 0).long()
-                    # Compute loss against binary targets
-                    train_loss = loss_fun(change_pred, change_bin)
+                    # Compute loss against binary targets (use 2-class criterion)
+                    train_loss = loss_fun_change(change_pred, change_bin)
                     # Scale loss for gradient accumulation
                     train_loss = train_loss / accumulation_steps
                     # Create a dummy loss_dict for logging consistency
