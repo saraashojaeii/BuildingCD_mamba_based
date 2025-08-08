@@ -22,11 +22,19 @@ def create_CD_model(opt):
     from models.changeformer import ChangeFormerPre as changeformer
     from models.mamba_cd import STMambaBCD as changemamba
     from models.rs_mamba import RSM_CD as rs_cdmamba
-    # Our CDMamba model
+    # Our CDMamba models
     from models.CDMamba import CDMamba as cdmamba
+    from models.CDMamba_modified import CDMamba as cdmamba_modified
+
+    cd_model = None
 
     if opt['model']['name'] == 'cdmamba':
         cd_model = cdmamba(spatial_dims=opt['model']['spatial_dims'], in_channels=opt['model']['in_channels'], init_filters=opt['model']['init_filters'], num_classes=opt['model']['n_classes'],
+                              mode=opt['model']['mode'], conv_mode=opt['model']['conv_mode'], up_mode=opt['model']['up_mode'], up_conv_mode=opt['model']['up_conv_mode'], norm=opt['model']['norm'],
+                              blocks_down=opt['model']['blocks_down'], blocks_up=opt['model']['blocks_up'], resdiual=opt['model']['resdiual'], diff_abs=opt['model']['diff_abs'], stage=opt['model']['stage'],
+                              mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
+    elif opt['model']['name'] == 'cdmamba_modified':
+        cd_model = cdmamba_modified(spatial_dims=opt['model']['spatial_dims'], in_channels=opt['model']['in_channels'], init_filters=opt['model']['init_filters'], num_classes=opt['model']['n_classes'],
                               mode=opt['model']['mode'], conv_mode=opt['model']['conv_mode'], up_mode=opt['model']['up_mode'], up_conv_mode=opt['model']['up_conv_mode'], norm=opt['model']['norm'],
                               blocks_down=opt['model']['blocks_down'], blocks_up=opt['model']['blocks_up'], resdiual=opt['model']['resdiual'], diff_abs=opt['model']['diff_abs'], stage=opt['model']['stage'],
                               mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
@@ -85,7 +93,11 @@ def create_CD_model(opt):
         cd_model = acabfnet(nclass=2, head=[4,8,16,32])
         print("acabfnet")
     else:
-        # cd_model = resnet()
+        # Unknown model name
         print("No model")
+    
+    if cd_model is None:
+        raise ValueError(f"Unknown model name: {opt['model']['name']}")
+    
     logger.info('CD Model [{:s}] is created.'.format(opt['model']['name']))
     return cd_model
