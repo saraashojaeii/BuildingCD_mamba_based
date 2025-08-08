@@ -491,12 +491,18 @@ if __name__ == '__main__':
             ### Epoch Summary ###
             scores = metric.get_scores()
             epoch_acc = scores['mf1']
+            # Compute average epoch loss
+            avg_epoch_loss = (epoch_loss / len(train_loader)) if len(train_loader) > 0 else 0.0
             
             # Log training epoch summary
             wandb.log({
                 'train/epoch_mF1': epoch_acc,
+                'train/epoch_loss': avg_epoch_loss,
                 'train/epoch_mIoU': scores.get('mIoU', 0),
                 'train/epoch_OA': scores.get('OA', 0),
+                # flat keys as requested
+                'train_epoch_mf1': epoch_acc,
+                'train_epoch_loss': avg_epoch_loss,
                 'epoch': current_epoch
             })
             
@@ -594,8 +600,12 @@ if __name__ == '__main__':
                                 val_gt_np = val_gt_np.flatten()[:min_size].reshape(-1)
                                 val_pred_np = val_pred_np.flatten()[:min_size].reshape(-1)
                     
-                    val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
+                    # Update confusion matrix and get running mF1
+                    val_running_acc = val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
                     
+                    # Per-step validation logging
+                    wandb.log({'val_loss': val_loss.item(), 'val_running_acc': val_running_acc.item()})
+            
                     # Log validation visualizations for first batch of each epoch
                     if val_step == 0 and current_epoch % 1 == 0:
                         with torch.no_grad():
