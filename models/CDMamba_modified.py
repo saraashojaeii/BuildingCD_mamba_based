@@ -304,11 +304,11 @@ class CDMamba(nn.Module):
             get_conv_layer(self.spatial_dims, self.init_filters, self.num_classes, kernel_size=1, bias=True),
         )
         if self.use_transition_head:
-            # Output num_classes x num_classes channels (all transitions)
+            # Output 2 channels: [no-change, change]
             self.change_head = nn.Sequential(
                 get_norm_layer(name=self.norm, spatial_dims=self.spatial_dims, channels=self.init_filters * 2),
                 self.act_mod,
-                get_conv_layer(self.spatial_dims, self.init_filters * 2, self.num_classes * self.num_classes, kernel_size=1, bias=True),
+                get_conv_layer(self.spatial_dims, self.init_filters * 2, 2, kernel_size=1, bias=True),
             )
 
         self.fusion_blocks = nn.ModuleList([

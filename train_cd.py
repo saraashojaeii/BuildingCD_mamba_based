@@ -351,10 +351,12 @@ if __name__ == '__main__':
 
 
                 else:
-                    # Assumes binary loss on the change prediction head
+                    # Binary change detection branch (2-channel change head)
                     change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
-                    # Temporarily disable mixed precision to debug NaN
-                    train_loss = loss_fun(change_pred, change)
+                    # Create binary ground truth: 0 = no-change, 1 = change
+                    change_bin = (change > 0).long()
+                    # Compute loss against binary targets
+                    train_loss = loss_fun(change_pred, change_bin)
                     # Scale loss for gradient accumulation
                     train_loss = train_loss / accumulation_steps
                     # Create a dummy loss_dict for logging consistency
@@ -405,16 +407,16 @@ if __name__ == '__main__':
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
-                        "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=num_classes * num_classes), caption="Pred Change (multi-class)")],
+                        "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
                         "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                         "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=num_classes * num_classes), caption="GT Change")],
+                        "train/gt_change": [wandb.Image(create_color_mask((change[0] > 0).long(), num_classes=2), caption="GT Change (binary)")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
                 # Save change prediction for metrics before cleanup
-                change_pred = outputs[2].detach()  # [B, num_classes*num_classes, H, W]
-                change_gt = change.detach()  # Save ground truth too
+                change_pred = outputs[2].detach()  # [B, 2, H, W]
+                change_gt = (change > 0).long().detach()  # Binary ground truth
                 
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
@@ -452,17 +454,12 @@ if __name__ == '__main__':
                 log_dict['loss_change'] = loss_dict['change']
                 epoch_loss += train_loss.item()
 
-                # For metric, convert transition prediction to binary change map
+                # For metric, use argmax over 2-class change head
                 G_pred = torch.argmax(change_pred, dim=1)
-
-                n_classes = opt['model']['n_classes']
-                from_class = G_pred // n_classes
-                to_class = G_pred % n_classes
-                binary_pred = (from_class != to_class).int()
+                binary_pred = G_pred.int()
                 
-                # Convert ground truth to binary (0 = no change, 1 = change)
-                # Using saved change_gt instead of deleted change variable
-                gt_np = (change_gt.cpu().numpy() > 0).astype(np.uint8)
+                # Ground truth already binary (saved above)
+                gt_np = change_gt.cpu().numpy().astype(np.uint8)
                 pred_np = binary_pred.cpu().numpy()
 
 
@@ -508,7 +505,7 @@ if __name__ == '__main__':
             
             ### VALIDATION LOOP ###
             logger.info('Starting validation...')
-            val_metric = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
+            val_metric = ConfuseMatrixMeter(n_class=2)
             cd_model.eval()
             val_loss_total = 0.0
             val_steps = 0
@@ -548,8 +545,9 @@ if __name__ == '__main__':
                         val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     else:
                         val_change_pred = val_outputs[2] if len(val_outputs) > 2 else val_outputs[0]
-                        # Temporarily disable mixed precision to debug NaN (consistent with training)
-                        val_loss = loss_fun(val_change_pred, val_change)
+                        # Create binary ground truth for validation
+                        val_change_bin = (val_change > 0).long()
+                        val_loss = loss_fun(val_change_pred, val_change_bin)
                         val_seg_logits_t1 = val_seg_logits_t2 = torch.zeros_like(val_change_pred)
                         val_loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                     
@@ -557,11 +555,9 @@ if __name__ == '__main__':
                     val_steps += 1
                     
                     # Update validation metrics
+                    # Use argmax over 2-class change head directly
                     val_G_pred = torch.argmax(val_change_pred.detach(), dim=1)
-                    n_classes = opt['model']['n_classes']
-                    val_from_class = val_G_pred // n_classes
-                    val_to_class = val_G_pred % n_classes
-                    val_binary_pred = (val_from_class != val_to_class).int()
+                    val_binary_pred = val_G_pred.int()
                     
                     # Ensure both arrays have the same shape for metric calculation
                     val_gt_np = (val_change.cpu().numpy() > 0).astype(np.uint8)
@@ -661,7 +657,7 @@ if __name__ == '__main__':
                         wandb.log({
                             "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
                             "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
-                            "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val Pred Change (multi-class)")],
+                            "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=2), caption="Val Pred Change (binary)")],
                             "val/pred_seg_t1_prob": [wandb.Image(val_seg_t1_max_prob, caption="Val Pred Seg T1 Max Probability")],
                             "val/pred_seg_t2_prob": [wandb.Image(val_seg_t2_max_prob, caption="Val Pred Seg T2 Max Probability")],
                             "val/pred_change_prob": [wandb.Image(val_change_max_prob, caption="Val Pred Change Max Probability")],
@@ -730,19 +726,15 @@ if __name__ == '__main__':
                         change = None
 
                     outputs = cd_model(test_img1, test_img2)
-                    # Only use change head for metric and visuals
-                    change_pred = outputs[2]  # [B, num_classes*num_classes, H, W]
+                    # Only use change head for metric and visuals (2-class)
+                    change_pred = outputs[2]  # [B, 2, H, W]
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
-                    # ... (rest of the code remains the same)
-                    # Convert prediction to binary change mask
-                    n_classes = opt['model']['n_classes']
-                    from_class = G_pred // n_classes
-                    to_class = G_pred % n_classes
-                    binary_pred = (from_class != to_class).int()
+                    # Convert prediction to binary change mask directly
+                    binary_pred = G_pred.int()
                     
                     # Get ground truth
                     if 'change' in test_data:
-                        gt = test_data['change'].to(device)
+                        gt = (test_data['change'] > 0).long().to(device)
                     elif change is not None:
                         gt = change.to(device)
                     else:
