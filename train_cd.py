@@ -362,7 +362,14 @@ if __name__ == '__main__':
 
                 else:
                     # Binary change detection branch (2-channel change head)
-                    change_pred = outputs[2] if isinstance(outputs, tuple) and len(outputs) > 2 else outputs
+                    if isinstance(outputs, tuple) and len(outputs) >= 3:
+                        seg_logits_t1, seg_logits_t2, change_pred = outputs
+                    else:
+                        change_pred = outputs
+                        # Create dummy segmentation logits for logging with correct class dimension
+                        b, _, h, w = change_pred.shape
+                        seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=change_pred.device, dtype=change_pred.dtype)
+                        seg_logits_t2 = torch.zeros_like(seg_logits_t1)
                     # Create binary ground truth: 0 = no-change, 1 = change
                     change_bin = (change > 0).long()
                     # Compute loss against binary targets (use 2-class criterion)
@@ -371,7 +378,6 @@ if __name__ == '__main__':
                     train_loss = train_loss / accumulation_steps
                     # Create a dummy loss_dict for logging consistency
                     loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': train_loss.item()}
-                    seg_logits_t1 = seg_logits_t2 = torch.zeros_like(change_pred)  # dummy for logging
                 
                 # Convert logits to predicted masks for logging
                 with torch.no_grad():
