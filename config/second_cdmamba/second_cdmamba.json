@@ -72,7 +72,7 @@
   },
 
   "train" : {
-    "n_epoch" : 200,
+    "n_epoch" : 1,
     "train_print_iter" : 500,
     "val_freq" : 1,
     "val_print_iter" : 50,

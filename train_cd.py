@@ -326,10 +326,23 @@ if __name__ == '__main__':
                         else:
                             gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes'])
                         
+                        # Also log probability maps for debugging
+                        seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)
+                        seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
+                        change_probs = torch.softmax(change_pred[0], dim=0)
+                        
+                        # Create probability visualizations (show max probability across classes)
+                        seg_t1_max_prob = torch.max(seg_t1_probs, dim=0)[0].detach().cpu().numpy()
+                        seg_t2_max_prob = torch.max(seg_t2_probs, dim=0)[0].detach().cpu().numpy()
+                        change_max_prob = torch.max(change_probs, dim=0)[0].detach().cpu().numpy()
+                        
                         wandb.log({
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
                             "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
                             "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Pred Change (multi-class)")],
+                            "train/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Pred Seg T1 Max Probability")],
+                            "train/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Pred Seg T2 Max Probability")],
+                            "train/pred_change_prob": [wandb.Image(change_max_prob, caption="Pred Change Max Probability")],
                             "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                             "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
                             "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change")],
@@ -356,6 +369,14 @@ if __name__ == '__main__':
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0:
+                    # Debug: Check prediction values
+                    print(f"\n=== TRAINING PREDICTIONS DEBUG (Epoch {current_epoch}) ===")
+                    print(f"pred_seg_t1 shape: {pred_seg_t1.shape}, unique values: {torch.unique(pred_seg_t1[0])}")
+                    print(f"pred_seg_t2 shape: {pred_seg_t2.shape}, unique values: {torch.unique(pred_seg_t2[0])}")
+                    print(f"pred_change shape: {pred_change.shape}, unique values: {torch.unique(pred_change[0])}")
+                    print(f"seg_logits_t1 shape: {seg_logits_t1.shape}, min: {seg_logits_t1.min():.4f}, max: {seg_logits_t1.max():.4f}")
+                    print(f"seg_logits_t2 shape: {seg_logits_t2.shape}, min: {seg_logits_t2.min():.4f}, max: {seg_logits_t2.max():.4f}")
+                    print(f"change_pred shape: {change_pred.shape}, min: {change_pred.min():.4f}, max: {change_pred.max():.4f}")
                     # Handle ground truth masks - check if they're already RGB or need color mapping
                     seg_t1_np = seg_t1[0].detach().cpu().numpy()
                     seg_t2_np = seg_t2[0].detach().cpu().numpy()
@@ -582,6 +603,15 @@ if __name__ == '__main__':
                             val_pred_seg_t2 = torch.argmax(val_seg_logits_t2, dim=1)
                             val_pred_change = torch.argmax(val_change_pred, dim=1)
                         
+                        # Debug: Check validation prediction values
+                        print(f"\n=== VALIDATION PREDICTIONS DEBUG (Epoch {current_epoch}) ===")
+                        print(f"val_pred_seg_t1 shape: {val_pred_seg_t1.shape}, unique values: {torch.unique(val_pred_seg_t1[0])}")
+                        print(f"val_pred_seg_t2 shape: {val_pred_seg_t2.shape}, unique values: {torch.unique(val_pred_seg_t2[0])}")
+                        print(f"val_pred_change shape: {val_pred_change.shape}, unique values: {torch.unique(val_pred_change[0])}")
+                        print(f"val_seg_logits_t1 shape: {val_seg_logits_t1.shape}, min: {val_seg_logits_t1.min():.4f}, max: {val_seg_logits_t1.max():.4f}")
+                        print(f"val_seg_logits_t2 shape: {val_seg_logits_t2.shape}, min: {val_seg_logits_t2.min():.4f}, max: {val_seg_logits_t2.max():.4f}")
+                        print(f"val_change_pred shape: {val_change_pred.shape}, min: {val_change_pred.min():.4f}, max: {val_change_pred.max():.4f}")
+                        
                         # Handle ground truth masks same as training
                         val_seg_t1_np = val_seg_t1[0].detach().cpu().numpy()
                         val_seg_t2_np = val_seg_t2[0].detach().cpu().numpy()
@@ -608,10 +638,23 @@ if __name__ == '__main__':
                         val_change_binary = (val_change[0] > 0).float()  # Convert to binary (0 or 1)
                         val_change_binary_img = create_color_mask(val_change_binary, num_classes=2)  # Binary visualization
                         
+                        # Also log probability maps for validation debugging
+                        val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
+                        val_seg_t2_probs = torch.softmax(val_seg_logits_t2[0], dim=0)
+                        val_change_probs = torch.softmax(val_change_pred[0], dim=0)
+                        
+                        # Create probability visualizations (show max probability across classes)
+                        val_seg_t1_max_prob = torch.max(val_seg_t1_probs, dim=0)[0].detach().cpu().numpy()
+                        val_seg_t2_max_prob = torch.max(val_seg_t2_probs, dim=0)[0].detach().cpu().numpy()
+                        val_change_max_prob = torch.max(val_change_probs, dim=0)[0].detach().cpu().numpy()
+                        
                         wandb.log({
                             "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
                             "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
                             "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Val Pred Change (multi-class)")],
+                            "val/pred_seg_t1_prob": [wandb.Image(val_seg_t1_max_prob, caption="Val Pred Seg T1 Max Probability")],
+                            "val/pred_seg_t2_prob": [wandb.Image(val_seg_t2_max_prob, caption="Val Pred Seg T2 Max Probability")],
+                            "val/pred_change_prob": [wandb.Image(val_change_max_prob, caption="Val Pred Change Max Probability")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
                             "val/gt_change": [wandb.Image(val_change_binary_img, caption="Val GT Change (binary)")],
