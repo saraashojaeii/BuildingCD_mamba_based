@@ -34,7 +34,7 @@ class ModifiedSRCMLayer(nn.Module):
 
         # Grouped ConvMamba (split channels across groups)
         self.mambas = nn.ModuleList([
-            ConvMamba(d_model=input_dim // groups, d_state=d_state, d_conv=d_conv, expand=expand)
+            ConvMamba(d_model=input_dim // groups, d_state=d_state, d_conv=d_conv, expand=expand, bimamba_type="v2")
             for _ in range(groups)
         ])
 
