@@ -20,6 +20,7 @@ import wandb
 import matplotlib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+from datetime import datetime
 
 def normalize_change_target(seg1: torch.Tensor | None,
                             seg2: torch.Tensor | None,
@@ -149,6 +150,19 @@ if __name__ == '__main__':
     #Convert to NoneDict, which return None for missing key.
     opt = Logger.dict_to_nonedict(opt)
 
+    # Create a unique timestamped experiment subfolder for logs/results/checkpoints
+    exp_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    exp_name = opt.get('name', 'experiment')
+    exp_folder = f"{exp_name}_{exp_timestamp}"
+    for k in ['log', 'result', 'checkpoint']:
+        if k in opt['path_cd'] and isinstance(opt['path_cd'][k], str):
+            base_dir = opt['path_cd'][k]
+            stamped = os.path.join(base_dir, exp_folder)
+            opt['path_cd'][k] = stamped
+            os.makedirs(stamped, exist_ok=True)
+    # Keep the subfolder name for reference
+    opt['path_cd']['exp_folder'] = exp_folder
+
     #logging
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
@@ -178,6 +192,12 @@ if __name__ == '__main__':
     # Initialize wandb only on main process
     if opt.get('wandb') and opt['wandb'].get('project'):
         wandb.init(project=opt['wandb']['project'], config=opt)
+        try:
+            run_name = exp_folder
+            if hasattr(wandb, 'run') and wandb.run is not None:
+                wandb.run.name = run_name
+        except Exception:
+            pass
     else:
         wandb.init(mode="disabled")
 
