@@ -758,8 +758,12 @@ if __name__ == '__main__':
                         else:
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
-                        # Create binary ground truth change visualization (black/white)
-                        val_gt_change_bw = ((val_change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
+                        # Create binary ground truth change visualization (black/white) using normalized binary target
+                        try:
+                            val_change_bin_vis = val_change_bin
+                        except NameError:
+                            val_change_bin_vis = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
+                        val_gt_change_bw = ((val_change_bin_vis[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
                         
                         # Also log probability maps for validation debugging
                         val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
