@@ -21,6 +21,66 @@ import matplotlib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
+def normalize_change_target(seg1: torch.Tensor | None,
+                            seg2: torch.Tensor | None,
+                            change_gt: torch.Tensor | None) -> torch.Tensor:
+    """Return binary change target of shape [B, H, W] (dtype long, {0,1}).
+
+    Handles cases where:
+    - change_gt is provided in various formats (NCHW with C=1, NHWC RGB, or [B,H,W] int/float)
+    - or must be derived from seg1 and seg2 which may be RGB (NHWC), one-hot/logits (NCHW, C>1),
+      or single-channel (NCHW, C=1 or [B,H,W]).
+    """
+    def _to_index_mask(x: torch.Tensor) -> torch.Tensor:
+        # Convert arbitrary segmentation label tensor to [B,H,W] integer indices
+        if x.dim() == 4:
+            # NCHW
+            if x.size(1) == 1:
+                return x.squeeze(1).long()
+            # NHWC (e.g., RGB mask)
+            if x.size(-1) == 3 and x.shape[1] != 3:
+                # Assume channels-last
+                return x.any(dim=-1).long()  # fallback to binary presence per-pixel
+            # Multi-channel: take argmax as class indices
+            return torch.argmax(x, dim=1).long()
+        elif x.dim() == 3:
+            # Already [B,H,W]
+            return x.long()
+        else:
+            raise ValueError(f"Unsupported seg shape: {tuple(x.shape)}")
+
+    if change_gt is not None:
+        c = change_gt
+        # If NHWC RGB -> any over last channel
+        if c.dim() == 4 and c.size(-1) == 3 and (c.shape[1] != 3):
+            c = c.any(dim=-1).long()
+        elif c.dim() == 4 and c.size(1) == 1:
+            c = c.squeeze(1).long()
+        elif c.dim() == 3:
+            # [B,H,W] possibly float/binary
+            c = (c > 0).long()
+        else:
+            # As a conservative fallback
+            c = _to_index_mask(c)
+            c = (c > 0).long()
+        return c
+
+    # Derive from seg1 and seg2
+    if seg1 is None or seg2 is None:
+        raise ValueError("seg1/seg2 required when change_gt is None")
+
+    # Handle RGB NHWC
+    if seg1.dim() == 4 and seg1.size(-1) == 3 and (seg1.shape[1] != 3) and \
+       seg2.dim() == 4 and seg2.size(-1) == 3 and (seg2.shape[1] != 3):
+        change = (seg1 != seg2).any(dim=-1).long()
+        return change
+
+    # Convert to class indices if needed
+    s1 = _to_index_mask(seg1)
+    s2 = _to_index_mask(seg2)
+    change = (s1 != s2).long()
+    return change
+
 def create_color_mask(tensor, num_classes: int = 10):
     """Convert a 2-D label tensor/ndarray to an RGB image with a categorical colormap.
 
@@ -351,16 +411,18 @@ if __name__ == '__main__':
                         seg_t2_max_prob = torch.max(seg_t2_probs, dim=0)[0].detach().cpu().numpy()
                         change_max_prob = torch.max(change_probs, dim=0)[0].detach().cpu().numpy()
                         
+                        # For change, visualize as 2-class (class-1 prob heatmap + argmax)
+                        change_prob = change_probs[1].detach().cpu().numpy()
                         wandb.log({
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
                             "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
-                            "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="Pred Change (multi-class)")],
+                            "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
                             "train/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Pred Seg T1 Max Probability")],
                             "train/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Pred Seg T2 Max Probability")],
-                            "train/pred_change_prob": [wandb.Image(change_max_prob, caption="Pred Change Max Probability")],
+                            "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
                             "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                             "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=opt['model']['n_classes'] * opt['model']['n_classes']), caption="GT Change")],
+                            "train/gt_change": [wandb.Image(((change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8), caption="GT Change (binary BW)")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
 
@@ -375,10 +437,8 @@ if __name__ == '__main__':
                         b, _, h, w = change_pred.shape
                         seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=change_pred.device, dtype=change_pred.dtype)
                         seg_logits_t2 = torch.zeros_like(seg_logits_t1)
-                    # Create binary ground truth: 0 = no-change, 1 = change (ensure shape [B,H,W])
-                    change_bin = (change > 0).long()
-                    if change_bin.dim() == 4 and change_bin.size(1) == 1:
-                        change_bin = change_bin.squeeze(1)
+                    # Create binary ground truth robustly: [B,H,W] long
+                    change_bin = normalize_change_target(seg_t1, seg_t2, change)
                     # Compute loss against binary targets (use 2-class criterion)
                     train_loss = loss_fun_change(change_pred, change_bin)
                     # Scale loss for gradient accumulation
@@ -552,13 +612,8 @@ if __name__ == '__main__':
                         val_seg_t2 = val_data['L2'].to(device)
                     else:
                         val_seg_t1 = val_seg_t2 = val_data.get('L', torch.zeros_like(val_img1[:, :1])).to(device)
-                    
-                    if 'change' in val_data:
-                        val_change = val_data['change'].to(device)
-                    elif val_seg_t1 is not None and val_seg_t2 is not None:
-                        val_change = (val_seg_t1 != val_seg_t2).long()
-                    else:
-                        val_change = torch.zeros_like(val_img1[:, :1]).long().to(device)
+                    # Prefer provided change; otherwise derive from segs
+                    val_change = val_data['change'].to(device) if 'change' in val_data else None
                     
                     # Forward pass
                     val_outputs = cd_model(val_img1, val_img2)
@@ -583,10 +638,8 @@ if __name__ == '__main__':
                             b, _, h, w = val_change_pred.shape
                             val_seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=val_change_pred.device, dtype=val_change_pred.dtype)
                             val_seg_logits_t2 = torch.zeros_like(val_seg_logits_t1)
-                        # Create binary ground truth for validation (ensure [B,H,W])
-                        val_change_bin = (val_change > 0).long()
-                        if val_change_bin.dim() == 4 and val_change_bin.size(1) == 1:
-                            val_change_bin = val_change_bin.squeeze(1)
+                        # Create binary ground truth for validation (robust [B,H,W])
+                        val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
                         # Use 2-class criterion
                         val_loss = loss_fun_change(val_change_pred, val_change_bin)
                         # For logging completeness if real seg logits weren't returned
@@ -605,7 +658,7 @@ if __name__ == '__main__':
                     val_binary_pred = val_G_pred.int()
                     
                     # Ensure both arrays have the same shape for metric calculation
-                    val_gt_np = (val_change.cpu().numpy() > 0).astype(np.uint8)
+                    val_gt_np = val_change_bin.cpu().numpy().astype(np.uint8)
                     val_pred_np = val_binary_pred.cpu().numpy()
                     
                     # Handle potential shape mismatches
@@ -696,7 +749,7 @@ if __name__ == '__main__':
                         # Create probability visualizations (show max probability across classes)
                         val_seg_t1_max_prob = torch.max(val_seg_t1_probs, dim=0)[0].detach().cpu().numpy()
                         val_seg_t2_max_prob = torch.max(val_seg_t2_probs, dim=0)[0].detach().cpu().numpy()
-                        val_change_max_prob = torch.max(val_change_probs, dim=0)[0].detach().cpu().numpy()
+                        val_change_prob = val_change_probs[1].detach().cpu().numpy()
                         
                         wandb.log({
                             "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
@@ -704,7 +757,7 @@ if __name__ == '__main__':
                             "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=2), caption="Val Pred Change (binary)")],
                             "val/pred_seg_t1_prob": [wandb.Image(val_seg_t1_max_prob, caption="Val Pred Seg T1 Max Probability")],
                             "val/pred_seg_t2_prob": [wandb.Image(val_seg_t2_max_prob, caption="Val Pred Seg T2 Max Probability")],
-                            "val/pred_change_prob": [wandb.Image(val_change_max_prob, caption="Val Pred Change Max Probability")],
+                            "val/pred_change_prob": [wandb.Image(val_change_prob, caption="Val Pred Change Class-1 Probability")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
                             "val/gt_change": [wandb.Image(val_gt_change_bw, caption="Val GT Change (binary BW)")],
