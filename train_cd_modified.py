@@ -814,19 +814,30 @@ if __name__ == '__main__':
                         seg_t1 = seg_t2 = test_data.get('L')
 
                     # Obtain change mask if provided; otherwise derive binary mask from seg labels
-                    if 'change' in test_data:
-                        change = test_data['change']
-                    elif seg_t1 is not None and seg_t2 is not None:
-                        # derive binary change: 1 where labels differ
-                        change = (seg_t1 != seg_t2).long()
-                    else:
-                        change = None
+                    change = test_data['change'] if 'change' in test_data else None
 
                     outputs = cd_model(test_img1, test_img2)
                     # Only use change head for metric and visuals (2-class)
                     change_pred = outputs[2]  # [B, 2, H, W]
-                    G_pred = torch.argmax(change_pred.detach(), dim=1)
                     # Convert prediction to binary change mask directly
+                    G_pred = torch.argmax(change_pred.detach(), dim=1)
+                    # Normalize GT to binary [B,H,W]
+                    test_change_bin = normalize_change_target(seg_t1, seg_t2, change)
+
+                    # Prepare numpy arrays for metrics
+                    pred_np = G_pred.int().cpu().numpy()
+                    gt_np = test_change_bin.cpu().numpy().astype(np.uint8)
+
+                    # Optional: log first batch of test predictions
+                    if current_step == 0:
+                        change_probs = torch.softmax(change_pred[0], dim=0)
+                        change_prob = change_probs[1].detach().cpu().numpy()
+                        test_gt_change_bw = ((test_change_bin[0] > 0).float().cpu().numpy() * 255).astype(np.uint8)
+                        wandb.log({
+                            "test/pred_change": [wandb.Image(create_color_mask(G_pred[0], num_classes=2), caption="Test Pred Change (binary)")],
+                            "test/pred_change_prob": [wandb.Image(change_prob, caption="Test Pred Change Class-1 Probability")],
+                            "test/gt_change": [wandb.Image(test_gt_change_bw, caption="Test GT Change (binary BW)")]
+                        })
                     binary_pred = G_pred.int()
                     
                     # Get ground truth
