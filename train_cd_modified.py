@@ -841,8 +841,9 @@ if __name__ == '__main__':
                     change = test_data['change'] if 'change' in test_data else None
 
                     outputs = cd_model(test_img1, test_img2)
+                    # Extract all heads
+                    seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # Only use change head for metric and visuals (2-class)
-                    change_pred = outputs[2]  # [B, 2, H, W]
                     # Convert prediction to binary change mask directly
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
                     # Normalize GT to binary [B,H,W]
@@ -852,12 +853,27 @@ if __name__ == '__main__':
                     pred_np = G_pred.int().cpu().numpy()
                     gt_np = test_change_bin.cpu().numpy().astype(np.uint8)
 
-                    # Optional: log first batch of test predictions
+                    # Optional: log first batch of test predictions (segmentations + probs)
                     if current_step == 0:
+                        # Change probabilities (class-1 probability)
                         change_probs = torch.softmax(change_pred[0], dim=0)
                         change_prob = change_probs[1].detach().cpu().numpy()
+
+                        # Segmentation predictions and per-pixel confidence (max prob)
+                        pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
+                        pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
+                        seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)  # [C,H,W]
+                        seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
+                        seg_t1_max_prob = torch.max(seg_t1_probs, dim=0).values.detach().cpu().numpy()  # [H,W]
+                        seg_t2_max_prob = torch.max(seg_t2_probs, dim=0).values.detach().cpu().numpy()
                         test_gt_change_bw = ((test_change_bin[0] > 0).float().cpu().numpy() * 255).astype(np.uint8)
                         wandb.log({
+                            # Multi-class segmentations (colorized)
+                            "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
+                            "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
+                            # Confidence maps
+                            "test/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Test Pred Seg T1 Max Probability")],
+                            "test/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Test Pred Seg T2 Max Probability")],
                             "test/pred_change": [wandb.Image(create_color_mask(G_pred[0], num_classes=2), caption="Test Pred Change (binary)")],
                             "test/pred_change_prob": [wandb.Image(change_prob, caption="Test Pred Change Class-1 Probability")],
                             "test/gt_change": [wandb.Image(test_gt_change_bw, caption="Test GT Change (binary BW)")]
