@@ -4,6 +4,7 @@ import os
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
 import torch.optim as optim
+from tqdm import tqdm
 import data as Data
 import models as Model
 import torch.nn as nn
