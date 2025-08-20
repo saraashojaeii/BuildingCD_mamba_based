@@ -777,6 +777,23 @@ if __name__ == '__main__':
                     val_G_pred = torch.argmax(val_change_pred.detach(), dim=1)
                     val_binary_pred = val_G_pred.int()
                     
+                    # Prepare ground truth change mask for both metrics and visualization
+                    # Get the binary ground truth change mask
+                    if val_change is not None:
+                        # Ensure it's the right shape for visualization
+                        if val_change.dim() == 4 and val_change.size(1) == 1:  # [B,1,H,W]
+                            val_change_vis = val_change.squeeze(1)  # Convert to [B,H,W]
+                        else:
+                            val_change_vis = val_change
+                        # Ensure it's binary and properly formatted
+                        val_change_vis = val_change_vis.detach().cpu()  
+                        print(f"\nval_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
+                    else:
+                        # Derive binary change mask from seg_t1 and seg_t2
+                        val_change_vis = normalize_change_target(val_seg_t1, val_seg_t2, None)
+                        val_change_vis = val_change_vis.detach().cpu()
+                        print(f"\nDerived val_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
+                    
                     # Ensure both arrays have the same shape for metric calculation
                     val_gt_np = val_change_vis.cpu().numpy().astype(np.uint8)
                     val_pred_np = val_binary_pred.cpu().numpy()
@@ -887,22 +904,8 @@ if __name__ == '__main__':
                         else:
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
-                        # Create binary ground truth change visualization (black/white) using normalized binary target
-                        # Get the binary ground truth change mask
-                        if val_change is not None:
-                            # Ensure it's the right shape for visualization
-                            if val_change.dim() == 4 and val_change.size(1) == 1:  # [B,1,H,W]
-                                val_change_vis = val_change.squeeze(1)  # Convert to [B,H,W]
-                            else:
-                                val_change_vis = val_change
-                            # Ensure it's binary and properly formatted
-                            val_change_vis = val_change_vis.detach().cpu()  
-                            print(f"\nval_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
-                        else:
-                            # Derive binary change mask from seg_t1 and seg_t2
-                            val_change_vis = normalize_change_target(val_seg_t1, val_seg_t2, None)
-                            val_change_vis = val_change_vis.detach().cpu()
-                            print(f"\nDerived val_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
+                        # Create binary ground truth change visualization
+                        # Note: val_change_vis is already prepared earlier for metrics
                         
                         # Create color visualization with enhanced contrast for binary mask
                         # First, debug what we have
@@ -934,13 +937,29 @@ if __name__ == '__main__':
                         val_seg_t2_max_prob = torch.max(val_seg_t2_probs, dim=0)[0].detach().cpu().numpy()
                         val_change_prob = val_change_probs[1].detach().cpu().numpy()
                         
+                        # Prepare validation input images for logging
+                        val_img1_np = val_img1[0].detach().cpu()
+                        val_img2_np = val_img2[0].detach().cpu()
+                        
+                        def norm_img(img):
+                            img = img
+                            if img.min() < 0:
+                                img = (img + 1.0) / 2.0
+                            img = (img * 255.0).clamp(0, 255).byte()
+                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                            
                         wandb.log({
+                            # Input images
+                            "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
+                            "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
+                            # Predictions
                             "val/pred_seg_t1": [wandb.Image(create_color_mask(val_pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T1 (multi-class)")],
                             "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
                             "val/pred_change": [wandb.Image(create_color_mask(val_pred_change[0], num_classes=2), caption="Val Pred Change (binary)")],
                             "val/pred_seg_t1_prob": [wandb.Image(val_seg_t1_max_prob, caption="Val Pred Seg T1 Max Probability")],
                             "val/pred_seg_t2_prob": [wandb.Image(val_seg_t2_max_prob, caption="Val Pred Seg T2 Max Probability")],
                             "val/pred_change_prob": [wandb.Image(val_change_prob, caption="Val Pred Change Class-1 Probability")],
+                            # Ground truth
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
                             "val/gt_change": [wandb.Image(val_gt_change_color, caption="Val GT Change (binary color)")],
@@ -1021,20 +1040,7 @@ if __name__ == '__main__':
                         # Log input images for test (first batch only)
                         test_img1_np = test_img1[0].detach().cpu()
                         test_img2_np = test_img2[0].detach().cpu()
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        test_img1_np = test_data['A'][0].detach().cpu()
-                        test_img2_np = test_data['B'][0].detach().cpu()
-                        wandb.log({
-                            "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
-                            "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
-                        }, commit=False)
-
-
+                        
                         def norm_img(img):
                             img = img
                             if img.min() < 0:
