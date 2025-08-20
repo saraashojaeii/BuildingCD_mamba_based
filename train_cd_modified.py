@@ -591,7 +591,14 @@ if __name__ == '__main__':
                     
                     # Prepare binary GT change as a binary mask (0/1) for visualization
                     train_gt_change_bin = normalize_change_target(seg_t1, seg_t2, change)
-                    train_gt_change_color = create_color_mask(train_gt_change_bin[0], num_classes=2)
+                    # Ensure mask is [H, W] for visualization
+                    if train_gt_change_bin.dim() == 3 and train_gt_change_bin.size(0) == 1:
+                        train_gt_change_bin_vis = train_gt_change_bin.squeeze(0)
+                    elif train_gt_change_bin.dim() == 3:
+                        train_gt_change_bin_vis = train_gt_change_bin[0]
+                    else:
+                        train_gt_change_bin_vis = train_gt_change_bin
+                    train_gt_change_color = create_color_mask(train_gt_change_bin_vis, num_classes=2)
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
@@ -741,6 +748,11 @@ if __name__ == '__main__':
                     elif opt['model']['loss'] == 'extended_triplet':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
                         u = val_change_pred if val_change_pred.shape[1] == 1 else val_change_pred[:, 1:2]
+                        # Ensure val_change shape is [B, H, W] (not [B,1,H,W]) for CrossEntropyLoss
+                        if val_change is not None and val_change.dim() == 4 and val_change.size(1) == 1:
+                            val_change = val_change.squeeze(1)
+                        if val_change is not None:
+                            val_change = val_change.long()
                         val_targets = {
                             "seg_t1": val_seg_t1,
                             "seg_t2": val_seg_t2,
