@@ -589,8 +589,9 @@ if __name__ == '__main__':
                     else:
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
                     
-                    # Prepare binary GT change as black/white image
-                    train_gt_change_color = create_color_mask(change[0], num_classes=2)
+                    # Prepare binary GT change as a binary mask (0/1) for visualization
+                    train_gt_change_bin = normalize_change_target(seg_t1, seg_t2, change)
+                    train_gt_change_color = create_color_mask(train_gt_change_bin[0], num_classes=2)
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
@@ -719,7 +720,11 @@ if __name__ == '__main__':
                     else:
                         val_seg_t1 = val_seg_t2 = val_data.get('L', torch.zeros_like(val_img1[:, :1])).to(device)
                     # Prefer provided change; otherwise derive from segs
-                    val_change = val_data['change'].to(device) if 'change' in val_data else None
+                    if 'change' in val_data and val_data['change'] is not None:
+                        val_change = val_data['change'].to(device)
+                    else:
+                        # Derive binary change mask from seg_t1 and seg_t2
+                        val_change = normalize_change_target(val_seg_t1, val_seg_t2, None)
                     
                     # Forward pass
                     val_outputs = cd_model(val_img1, val_img2)
