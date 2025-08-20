@@ -22,17 +22,18 @@ def sset(a: Tensor, sub: Iterable) -> bool:
     return uniq(a).issubset(sub)
 
 def class2one_hot(seg: Tensor, C: int) -> Tensor:
-    if len(seg.shape) == 2:  # Only w, h, used by the dataloader
-        seg = seg.unsqueeze(dim=0)
+    # Accept [B, H, W] or [B, 1, H, W] and convert to [B, H, W]
+    if seg.ndim == 4 and seg.shape[1] == 1:
+        seg = seg.squeeze(1)
+    if seg.ndim == 2:  # Only H, W, used by the dataloader
+        seg = seg.unsqueeze(0)
+    if seg.ndim != 3:
+        raise ValueError(f"class2one_hot expects [B, H, W], got {seg.shape}")
+    b, h, w = seg.shape
     assert sset(seg, list(range(C)))
-    if seg.ndim == 4:
-        seg = seg.squeeze(dim=1)
-    b, h, w = seg.shape  # type: Tuple[int, int, int]
-
     res = torch.stack([seg == c for c in range(C)], dim=1).type(torch.int32)
     assert res.shape == (b, C, h, w)
     assert one_hot(res)
-
     return res
 
 def get_scheduler(optimizer, args):
