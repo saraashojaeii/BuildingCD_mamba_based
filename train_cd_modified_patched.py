@@ -13,6 +13,7 @@ import core.logger as Logger
 import numpy as np
 from misc.metric_tools import ConfuseMatrixMeter
 from models.loss import *
+from loss_extended import TripletChangeSegLoss
 from collections import OrderedDict
 import core.metrics as Metrics
 from misc.torchutils import get_scheduler, save_network
@@ -142,22 +143,8 @@ if __name__ == '__main__':
                         choices=['train', 'test'], help='Run either train(training + validation) or testing',)
     parser.add_argument('--gpu_ids', type=str, default=None)
     parser.add_argument('-log_eval', action='store_true')
-    # Accept naming-related args so CLI doesn't error (used only for run naming)
-    parser.add_argument('--model', type=str, default=early_args.model, help='Model name (for run naming only)')
-    parser.add_argument('--dataset', type=str, default=early_args.dataset, help='Dataset name (for run naming only)')
-    parser.add_argument('--tag', type=str, default=early_args.tag, help='Optional custom tag (for run naming only)')
-    # Accept seed here as well (even though seeding uses early_args)
-    parser.add_argument('--seed', type=int, default=None, help='Optional; accepted for compatibility')
-    # Limits for overfitting/quick runs
-    parser.add_argument('--max_train_batches', type=int, default=0, help='Limit number of training batches per epoch (0 = no limit)')
-    parser.add_argument('--max_val_batches', type=int, default=0, help='Limit number of validation batches per epoch (0 = no limit)')
-    parser.add_argument('--max_test_batches', type=int, default=0, help='Limit number of test batches (0 = no limit)')
-    # Threshold for converting probs to binary mask (class-1)
-    parser.add_argument('--change_threshold', type=float, default=0.5, help='Probability threshold for change class (class-1) binarization')
-    # Auxiliary self-supervised loss weight
-    parser.add_argument('--aux_recon_weight', type=float, default=0.1, help='Weight for auxiliary reconstruction loss')
 
-    # Parse config
+    #paser config
     args = parser.parse_args()
     opt = Logger.parse(args)
 
@@ -165,20 +152,9 @@ if __name__ == '__main__':
     opt = Logger.dict_to_nonedict(opt)
 
     # Create a unique timestamped experiment subfolder for logs/results/checkpoints
-    exp_timestamp = datetime.now().strftime('%Y%m%d_%H')
+    exp_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     exp_name = opt.get('name', 'experiment')
-    dataset_suffix = getattr(args, 'dataset', None) or ''
-    tag_suffix = getattr(args, 'tag', None) or ''
-    suffix_parts = []
-    if dataset_suffix:
-        suffix_parts.append(str(dataset_suffix))
-    if tag_suffix:
-        suffix_parts.append(str(tag_suffix))
-    suffix = '_'.join(suffix_parts)
-    if suffix:
-        exp_folder = f"{exp_name}_{exp_timestamp}_{suffix}"
-    else:
-        exp_folder = f"{exp_name}_{exp_timestamp}"
+    exp_folder = f"{exp_name}_{exp_timestamp}"
     for k in ['log', 'result', 'checkpoint']:
         if k in opt['path_cd'] and isinstance(opt['path_cd'][k], str):
             base_dir = opt['path_cd'][k]
@@ -216,10 +192,9 @@ if __name__ == '__main__':
 
     # Initialize wandb only on main process
     if opt.get('wandb') and opt['wandb'].get('project'):
-        # Compose run name with dataset/tag suffixes for wandb as well
-        run_name = exp_folder
-        wandb.init(project=opt['wandb']['project'], config=opt, name=run_name)
+        wandb.init(project=opt['wandb']['project'], config=opt)
         try:
+            run_name = exp_folder
             if hasattr(wandb, 'run') and wandb.run is not None:
                 wandb.run.name = run_name
         except Exception:
@@ -385,10 +360,8 @@ if __name__ == '__main__':
             
             # Set memory fraction to avoid fragmentation (more conservative)
             torch.cuda.set_per_process_memory_fraction(0.8)
-            _max_train = getattr(args, 'max_train_batches', 0) or 0
-            _train_total = min(len(train_loader), _max_train) if _max_train > 0 else len(train_loader)
-            _train_iter = islice(train_loader, _max_train) if _max_train > 0 else train_loader
-            for current_step, train_data in enumerate(tqdm(_train_iter, total=_train_total, desc=f"Train {current_epoch}/{opt['train']['n_epoch']}")):
+            
+            for current_step, train_data in enumerate(train_loader):
                 # Aggressive memory cleanup at start of each step
                 # torch.cuda.empty_cache()
                 # torch.cuda.synchronize()
@@ -436,19 +409,6 @@ if __name__ == '__main__':
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
                         pred_change = torch.argmax(change_pred, dim=1)
                     
-                    # Log input images to wandb (first batch of each epoch)
-                    train_img1_np = train_im1[0].detach().cpu()
-                    train_img2_np = train_im2[0].detach().cpu()
-                    def norm_img(img):
-                        img = img
-                        if img.min() < 0:
-                            img = (img + 1.0) / 2.0
-                        img = (img * 255.0).clamp(0, 255).byte()
-                        return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                    wandb.log({
-                        "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
-                        "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
-                    }, commit=False)
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                     if current_step == 0 and current_epoch % 1 == 0:
                         # Handle ground truth masks - check if they're already RGB or need color mapping
@@ -698,11 +658,7 @@ if __name__ == '__main__':
             shape_mismatch_logged = False  # Flag to log shape mismatch only once per epoch
             
             with torch.no_grad():
-                _max_val = getattr(args, 'max_val_batches', 0) or 0
-                _val_total = min(len(val_loader), _max_val) if _max_val > 0 else len(val_loader)
-                _val_iter = islice(val_loader, _max_val) if _max_val > 0 else val_loader
-                
-                for val_step, val_data in enumerate(tqdm(_val_iter, total=_val_total, desc=f"Val {current_epoch}")):
+                for val_step, val_data in enumerate(val_loader):
                     val_img1 = val_data['A'].to(device)
                     val_img2 = val_data['B'].to(device)
                     
@@ -818,34 +774,6 @@ if __name__ == '__main__':
             
                     # Log validation visualizations for first batch of each epoch
                     if val_step == 0 and current_epoch % 1 == 0:
-                        # Log input images for val (first batch only)
-                        val_img1_np = val_img1[0].detach().cpu()
-                        val_img2_np = val_img2[0].detach().cpu()
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
-                            "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
-                        }, commit=False)
-
-                        # Log input images for val (first batch only)
-                        val_img1_np = val_img1[0].detach().cpu()
-                        val_img2_np = val_img2[0].detach().cpu()
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
-                            "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
-                        }, commit=False)
-
                         with torch.no_grad():
                             val_pred_seg_t1 = torch.argmax(val_seg_logits_t1, dim=1)
                             val_pred_seg_t2 = torch.argmax(val_seg_logits_t2, dim=1)
@@ -950,11 +878,7 @@ if __name__ == '__main__':
             os.makedirs(test_result_path, exist_ok=True)
             
             with torch.no_grad():
-                # Apply optional cap on test batches
-                _max_test = getattr(args, 'max_test_batches', 0) or 0
-                _test_total = min(len(test_loader), _max_test) if _max_test > 0 else len(test_loader)
-                _test_iter = islice(test_loader, _max_test) if _max_test > 0 else test_loader
-                for current_step, test_data in enumerate(tqdm(_test_iter, total=_test_total, desc="Test")):
+                for current_step, test_data in enumerate(test_loader):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
                     # Robust label extraction - data automatically on correct device
@@ -983,34 +907,6 @@ if __name__ == '__main__':
 
                     # Optional: log first batch of test predictions (segmentations + probs)
                     if current_step == 0:
-                        # Log input images for test (first batch only)
-                        test_img1_np = test_img1[0].detach().cpu()
-                        test_img2_np = test_img2[0].detach().cpu()
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
-                            "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
-                        }, commit=False)
-
-                        # Log input images for test (first batch only)
-                        test_img1_np = test_img1[0].detach().cpu()
-                        test_img2_np = test_img2[0].detach().cpu()
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
-                            "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
-                        }, commit=False)
-
                         # Change probabilities (class-1 probability)
                         change_probs = torch.softmax(change_pred[0], dim=0)
                         change_prob = change_probs[1].detach().cpu().numpy()
