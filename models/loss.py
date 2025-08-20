@@ -7,7 +7,7 @@ from misc.torchutils import class2one_hot,simplex
 from models.darnet_help.loss_help import FocalLoss, dernet_dice_loss
 
 def _resize_like(inp: torch.Tensor, ref: torch.Tensor, mode: str = "bilinear"):
-    \"\"\"Resize logits/probs inp to have the same HxW as ref (no-op if already same).\"\"\"
+    """Resize logits/probs inp to have the same HxW as ref (no-op if already same)."""
     if inp.shape[-2:] != ref.shape[-2:]:
         return F.interpolate(inp, size=ref.shape[-2:], mode=mode, align_corners=(mode=='bilinear'))
     return inp
@@ -375,7 +375,7 @@ class BCL(nn.Module):
 
 
 class BinaryDiceLoss(nn.Module):
-    \"\"\"Soft Dice on a binary mask, taking logits as input by default.\"\"\"
+    """Soft Dice on a binary mask, taking logits as input by default."""
     def __init__(self, from_logits: bool = True, smooth: float = 1e-6):
         super().__init__()
         self.from_logits = from_logits
@@ -398,7 +398,7 @@ class BinaryDiceLoss(nn.Module):
         return 1.0 - dice.mean()
 
 class ChangeHeadBCEDiceLoss(nn.Module):
-    \"\"\"BCEWithLogits + lambda_dice * BinaryDiceLoss for the change head.\"\"\"
+    """BCEWithLogits + lambda_dice * BinaryDiceLoss for the change head."""
     def __init__(self, lambda_dice: float = 1.0, pos_weight: float = None):
         super().__init__()
         self.lambda_dice = float(lambda_dice)
@@ -415,9 +415,9 @@ class ChangeHeadBCEDiceLoss(nn.Module):
         return bce + self.lambda_dice * dice
 
 class UnchangedSymmetricKLLoss(nn.Module):
-    \"\"\"Symmetric KL between t1/t2 class distributions on UNCHANGED pixels (c==0).
+    """Symmetric KL between t1/t2 class distributions on UNCHANGED pixels (c==0).
     Inputs are logits for numerical stability; temperature T softens distributions.
-    \"\"\"
+    """
     def __init__(self, T: float = 4.0, detach_one_side: bool = True, eps: float = 1e-8):
         super().__init__()
         self.T = float(T)
@@ -451,7 +451,7 @@ class UnchangedSymmetricKLLoss(nn.Module):
         return sym.sum() / (unch.sum() + self.eps)
 
 class ChangedDiversityCosineMarginLoss(nn.Module):
-    \"\"\"Encourage dissimilar semantics on CHANGED pixels via cosine similarity margin.\"\"\"
+    """Encourage dissimilar semantics on CHANGED pixels via cosine similarity margin."""
     def __init__(self, margin: float = 0.3, eps: float = 1e-8):
         super().__init__()
         self.margin = float(margin)
@@ -478,7 +478,7 @@ class ChangedDiversityCosineMarginLoss(nn.Module):
         return loss.sum() / (ch.sum() + self.eps)
 
 class CouplingChangeSemanticLoss(nn.Module):
-    \"\"\"Penalize disagreement between change prob q and semantic-derived change score r=1-dot(p1,p2).\"\"\"
+    """Penalize disagreement between change prob q and semantic-derived change score r=1-dot(p1,p2)."""
     def __init__(self, distance: str = "l1", detach_semantics: bool = False, eps: float = 1e-8):
         super().__init__()
         assert distance in {"l1","l2","bce"}
@@ -512,14 +512,14 @@ class CouplingChangeSemanticLoss(nn.Module):
 
 
 class TripletChangeSegLoss(nn.Module):
-    \"\"\"Convenience wrapper that sums:
+    """Convenience wrapper that sums:
         - seg losses t1 & t2 (you provide a callable seg_loss_fn)
         - change loss (BCE+Dice)
         - unchanged symmetric KL
         - changed diversity (cos margin)
         - coupling loss
     You can also use each class independently in your train script.
-    \"\"\"
+    """
     def __init__(self,
                  seg_loss_fn: nn.Module,
                  lambda_seg: float = 1.0,
