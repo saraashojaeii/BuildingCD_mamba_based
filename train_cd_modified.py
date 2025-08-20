@@ -620,8 +620,9 @@ if __name__ == '__main__':
                     # Create high contrast colormap (bright red on black)
                     h, w = binary_mask_np.shape
                     train_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
-                    # Explicitly set red channel to maximum for all change pixels
-                    train_gt_change_color[binary_mask_np > 0, 0] = 255  # Red channel
+                    # Use bright red color [255,0,0] for all change pixels (binary_mask_np > 0)
+                    mask = binary_mask_np > 0
+                    train_gt_change_color[mask] = [255, 0, 0]
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
