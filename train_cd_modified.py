@@ -598,11 +598,45 @@ if __name__ == '__main__':
                         train_gt_change_bin_vis = train_gt_change_bin[0]
                     else:
                         train_gt_change_bin_vis = train_gt_change_bin
-                    train_gt_change_color = create_color_mask(train_gt_change_bin_vis, num_classes=2)
+                    
+                    # Debug what we have
+                    print(f"\ntrain_gt_change_bin_vis unique values BEFORE: {torch.unique(train_gt_change_bin_vis)}")
+                    
+                    # Force to pure binary if needed
+                    if train_gt_change_bin_vis.dtype == torch.float32:
+                        # Convert to binary 0/1 if it's floating point
+                        train_change_vis_binary = (train_gt_change_bin_vis > 0.5).int()
+                    else:
+                        train_change_vis_binary = train_gt_change_bin_vis
+                        
+                    print(f"train_change_vis_binary unique values AFTER: {torch.unique(train_change_vis_binary)}")
+                    
+                    # Create custom binary colormap for better visibility
+                    # Black (0) for no change, bright red (1) for change
+                    binary_mask_np = train_change_vis_binary.cpu().numpy()
+                    h, w = binary_mask_np.shape
+                    train_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
+                    train_gt_change_color[binary_mask_np == 1] = [255, 0, 0]  # Bright red for changes
+                    
+                    # Log input images to wandb (first batch of each epoch)
+                    train_img1_np = train_data['A'][0].detach().cpu()
+                    train_img2_np = train_data['B'][0].detach().cpu()
+                    
+                    def norm_img(img):
+                        if img.min() < 0:
+                            img = (img + 1.0) / 2.0
+                        img = (img * 255.0).clamp(0, 255).byte()
+                        return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                    
                     wandb.log({
+                        # Input images
+                        "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
+                        "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
+                        # Predictions
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
                         "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
+                        # Ground truth
                         "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                         "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
                         "train/gt_change": [wandb.Image(train_gt_change_color, caption="GT Change (binary color)")],
