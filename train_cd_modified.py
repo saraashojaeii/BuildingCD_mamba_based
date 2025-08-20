@@ -22,6 +22,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from datetime import datetime
+from itertools import islice
 
 def normalize_change_target(seg1: torch.Tensor | None,
                             seg2: torch.Tensor | None,
@@ -438,8 +439,8 @@ if __name__ == '__main__':
                         pred_change = torch.argmax(change_pred, dim=1)
                     
                     # Log input images to wandb (first batch of each epoch)
-                    train_img1_np = train_im1[0].detach().cpu()
-                    train_img2_np = train_im2[0].detach().cpu()
+                    train_img1_np = train_data['A'][0].detach().cpu()
+                    train_img2_np = train_data['B'][0].detach().cpu()
                     def norm_img(img):
                         img = img
                         if img.min() < 0:
@@ -450,6 +451,7 @@ if __name__ == '__main__':
                         "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
                         "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
                     }, commit=False)
+
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                     if current_step == 0 and current_epoch % 1 == 0:
                         # Handle ground truth masks - check if they're already RGB or need color mapping
@@ -498,7 +500,7 @@ if __name__ == '__main__':
                             "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
                             "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                             "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                            "train/gt_change": [wandb.Image(((change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8), caption="GT Change (binary BW)")],
+                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=2), caption="GT Change (binary)")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
 
@@ -794,14 +796,13 @@ if __name__ == '__main__':
                                 img = (img + 1.0) / 2.0
                             img = (img * 255.0).clamp(0, 255).byte()
                             return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                        val_img1_np = val_data['A'][0].detach().cpu()
+                        val_img2_np = val_data['B'][0].detach().cpu()
                         wandb.log({
                             "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
                             "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
                         }, commit=False)
 
-                        # Log input images for val (first batch only)
-                        val_img1_np = val_img1[0].detach().cpu()
-                        val_img2_np = val_img2[0].detach().cpu()
                         def norm_img(img):
                             img = img
                             if img.min() < 0:
@@ -959,14 +960,13 @@ if __name__ == '__main__':
                                 img = (img + 1.0) / 2.0
                             img = (img * 255.0).clamp(0, 255).byte()
                             return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                        test_img1_np = test_data['A'][0].detach().cpu()
+                        test_img2_np = test_data['B'][0].detach().cpu()
                         wandb.log({
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                         }, commit=False)
 
-                        # Log input images for test (first batch only)
-                        test_img1_np = test_img1[0].detach().cpu()
-                        test_img2_np = test_img2[0].detach().cpu()
                         def norm_img(img):
                             img = img
                             if img.min() < 0:
