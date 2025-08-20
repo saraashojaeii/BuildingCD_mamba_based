@@ -452,6 +452,7 @@ if __name__ == '__main__':
                         "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
                     }, commit=False)
 
+
                     # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                     if current_step == 0 and current_epoch % 1 == 0:
                         # Handle ground truth masks - check if they're already RGB or need color mapping
@@ -500,7 +501,9 @@ if __name__ == '__main__':
                             "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
                             "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                             "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=2), caption="GT Change (binary)")],
+                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=2), caption="GT Change (binary color)")],
+                            "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
+                            "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
 
@@ -587,7 +590,7 @@ if __name__ == '__main__':
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
                     
                     # Prepare binary GT change as black/white image
-                    train_gt_change_bw = ((change[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
+                    train_gt_change_color = create_color_mask(change[0], num_classes=2)
                     wandb.log({
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
@@ -733,6 +736,12 @@ if __name__ == '__main__':
                     elif opt['model']['loss'] == 'extended_triplet':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
                         u = val_change_pred if val_change_pred.shape[1] == 1 else val_change_pred[:, 1:2]
+                        val_targets = {
+                            "seg_t1": val_seg_t1,
+                            "seg_t2": val_seg_t2,
+                            "change": val_change
+                        }
+                        val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     
                     val_loss_total += val_loss.item()
                     val_steps += 1
@@ -803,6 +812,7 @@ if __name__ == '__main__':
                             "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
                         }, commit=False)
 
+
                         def norm_img(img):
                             img = img
                             if img.min() < 0:
@@ -813,6 +823,7 @@ if __name__ == '__main__':
                             "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
                             "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
                         }, commit=False)
+
 
                         with torch.no_grad():
                             val_pred_seg_t1 = torch.argmax(val_seg_logits_t1, dim=1)
@@ -855,7 +866,7 @@ if __name__ == '__main__':
                             val_change_bin_vis = val_change_bin
                         except NameError:
                             val_change_bin_vis = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
-                        val_gt_change_bw = ((val_change_bin_vis[0] > 0).float().detach().cpu().numpy() * 255).astype(np.uint8)
+                        val_gt_change_color = create_color_mask(val_change_bin_vis[0], num_classes=2)
                         
                         # Also log probability maps for validation debugging
                         val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
@@ -876,7 +887,7 @@ if __name__ == '__main__':
                             "val/pred_change_prob": [wandb.Image(val_change_prob, caption="Val Pred Change Class-1 Probability")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
-                            "val/gt_change": [wandb.Image(val_gt_change_bw, caption="Val GT Change (binary BW)")],
+                            "val/gt_change": [wandb.Image(create_color_mask(val_change_bin_vis[0], num_classes=2), caption="Val GT Change (binary color)")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
                     
@@ -967,6 +978,7 @@ if __name__ == '__main__':
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                         }, commit=False)
 
+
                         def norm_img(img):
                             img = img
                             if img.min() < 0:
@@ -977,6 +989,7 @@ if __name__ == '__main__':
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                         }, commit=False)
+
 
                         # Change probabilities (class-1 probability)
                         change_probs = torch.softmax(change_pred[0], dim=0)
@@ -999,7 +1012,7 @@ if __name__ == '__main__':
                             "test/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Test Pred Seg T2 Max Probability")],
                             "test/pred_change": [wandb.Image(create_color_mask(G_pred[0], num_classes=2), caption="Test Pred Change (binary)")],
                             "test/pred_change_prob": [wandb.Image(change_prob, caption="Test Pred Change Class-1 Probability")],
-                            "test/gt_change": [wandb.Image(test_gt_change_bw, caption="Test GT Change (binary BW)")]
+                            "test/gt_change": [wandb.Image(create_color_mask(test_change_bin[0], num_classes=2), caption="Test GT Change (binary color)")],
                         })
                     binary_pred = G_pred.int()
                     
@@ -1062,6 +1075,24 @@ if __name__ == '__main__':
                             pred_cm, '{}/img_pred_cm{}.png'.format(test_result_path, current_step))
                         Metrics.save_img(
                             gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
+
+                        # Log input images to wandb for test/validation
+                        def norm_img(img):
+                            img = img
+                            if img.min() < 0:
+                                img = (img + 1.0) / 2.0
+                            img = (img * 255.0).clip(0, 255).astype(np.uint8)
+                            if img.ndim == 3:
+                                return img.transpose(1,2,0)
+                            return img
+                        if 'A' in test_data and 'B' in test_data:
+                            img_A_np = test_data['A'][0].detach().cpu().numpy()
+                            img_B_np = test_data['B'][0].detach().cpu().numpy()
+                            wandb.log({
+                                "test/input_T1": [wandb.Image(norm_img(img_A_np), caption="Test Input T1")],
+                                "test/input_T2": [wandb.Image(norm_img(img_B_np), caption="Test Input T2")],
+                            }, commit=False)
+
                     else:
                         # grid img
                         visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
@@ -1074,6 +1105,16 @@ if __name__ == '__main__':
                         grid_img = Metrics.tensor2img(grid_img)  # uint8
                         Metrics.save_img(
                             grid_img, '{}/img_A_B_pred_gt_{}.png'.format(test_result_path, current_step))
+
+                        # Log input images to wandb for test/validation (grid case)
+                        if 'A' in test_data and 'B' in test_data:
+                            img_A_np = test_data['A'][0].detach().cpu().numpy()
+                            img_B_np = test_data['B'][0].detach().cpu().numpy()
+                            wandb.log({
+                                "test/input_T1": [wandb.Image(norm_img(img_A_np), caption="Test Input T1")],
+                                "test/input_T2": [wandb.Image(norm_img(img_B_np), caption="Test Input T2")],
+                            }, commit=False)
+
 
                 ### log epoch status ###
                 scores = metric.get_scores()
