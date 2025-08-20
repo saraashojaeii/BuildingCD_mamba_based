@@ -778,7 +778,7 @@ if __name__ == '__main__':
                     val_binary_pred = val_G_pred.int()
                     
                     # Ensure both arrays have the same shape for metric calculation
-                    val_gt_np = val_change_bin.cpu().numpy().astype(np.uint8)
+                    val_gt_np = val_change_vis.cpu().numpy().astype(np.uint8)
                     val_pred_np = val_binary_pred.cpu().numpy()
                     
                     # Handle potential shape mismatches
@@ -904,8 +904,25 @@ if __name__ == '__main__':
                             val_change_vis = val_change_vis.detach().cpu()
                             print(f"\nDerived val_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
                         
-                        # Create color visualization
-                        val_gt_change_color = create_color_mask(val_change_vis[0], num_classes=2)
+                        # Create color visualization with enhanced contrast for binary mask
+                        # First, debug what we have
+                        print(f"\nval_change_vis[0] unique values BEFORE: {torch.unique(val_change_vis[0])}")
+                        
+                        # Force to pure binary if needed
+                        if val_change_vis[0].dtype == torch.float32:
+                            # Convert to binary 0/1 if it's floating point
+                            val_change_vis_binary = (val_change_vis[0] > 0.5).int()
+                        else:
+                            val_change_vis_binary = val_change_vis[0]
+                            
+                        print(f"val_change_vis_binary unique values AFTER: {torch.unique(val_change_vis_binary)}")
+                        
+                        # Create custom binary colormap for better visibility
+                        # Black (0) for no change, bright red (1) for change
+                        binary_mask_np = val_change_vis_binary.cpu().numpy()
+                        h, w = binary_mask_np.shape
+                        val_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
+                        val_gt_change_color[binary_mask_np == 1] = [255, 0, 0]  # Bright red for changes
                         
                         # Also log probability maps for validation debugging
                         val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
