@@ -747,18 +747,27 @@ if __name__ == '__main__':
                         val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
                     elif opt['model']['loss'] == 'extended_triplet':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
-                        u = val_change_pred if val_change_pred.shape[1] == 1 else val_change_pred[:, 1:2]
-                        # Ensure val_change shape is [B, H, W] (not [B,1,H,W]) for CrossEntropyLoss
-                        if val_change is not None and val_change.dim() == 4 and val_change.size(1) == 1:
-                            val_change = val_change.squeeze(1)
+                        
+                        # Extract class-1 logits (change) for binary loss - needs [B,1,H,W] shape
+                        if val_change_pred.shape[1] > 1:  # Model outputs [B,2,H,W]
+                            u = val_change_pred[:, 1:2]  # Take only the positive class: [B,1,H,W]
+                        else:
+                            u = val_change_pred  # Already [B,1,H,W]
+                            
+                        # Ensure val_change (gt) has shape [B,1,H,W] for BCE loss
                         if val_change is not None:
-                            val_change = val_change.long()
+                            if val_change.dim() == 3:  # [B,H,W]
+                                val_change = val_change.unsqueeze(1)  # [B,1,H,W]
+                            val_change = val_change.float()
+                            
                         val_targets = {
                             "seg_t1": val_seg_t1,
                             "seg_t2": val_seg_t2,
                             "change": val_change
                         }
-                        val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
+                        # Replace the change_pred part of val_outputs for loss calculation
+                        val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2, u)
+                        val_loss, val_loss_dict = loss_fun(val_outputs_adjusted, val_targets)
                     
                     val_loss_total += val_loss.item()
                     val_steps += 1
@@ -879,11 +888,24 @@ if __name__ == '__main__':
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
                         # Create binary ground truth change visualization (black/white) using normalized binary target
-                        try:
-                            val_change_bin_vis = val_change_bin
-                        except NameError:
-                            val_change_bin_vis = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
-                        val_gt_change_color = create_color_mask(val_change_bin_vis[0], num_classes=2)
+                        # Get the binary ground truth change mask
+                        if val_change is not None:
+                            # Ensure it's the right shape for visualization
+                            if val_change.dim() == 4 and val_change.size(1) == 1:  # [B,1,H,W]
+                                val_change_vis = val_change.squeeze(1)  # Convert to [B,H,W]
+                            else:
+                                val_change_vis = val_change
+                            # Ensure it's binary and properly formatted
+                            val_change_vis = val_change_vis.detach().cpu()  
+                            print(f"\nval_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
+                        else:
+                            # Derive binary change mask from seg_t1 and seg_t2
+                            val_change_vis = normalize_change_target(val_seg_t1, val_seg_t2, None)
+                            val_change_vis = val_change_vis.detach().cpu()
+                            print(f"\nDerived val_change_vis shape: {val_change_vis.shape}, unique values: {torch.unique(val_change_vis[0])}")
+                        
+                        # Create color visualization
+                        val_gt_change_color = create_color_mask(val_change_vis[0], num_classes=2)
                         
                         # Also log probability maps for validation debugging
                         val_seg_t1_probs = torch.softmax(val_seg_logits_t1[0], dim=0)
@@ -904,7 +926,7 @@ if __name__ == '__main__':
                             "val/pred_change_prob": [wandb.Image(val_change_prob, caption="Val Pred Change Class-1 Probability")],
                             "val/gt_seg_t1": [wandb.Image(val_gt_seg_t1_img, caption="Val GT Seg T1")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
-                            "val/gt_change": [wandb.Image(create_color_mask(val_change_bin_vis[0], num_classes=2), caption="Val GT Change (binary color)")],
+                            "val/gt_change": [wandb.Image(val_gt_change_color, caption="Val GT Change (binary color)")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
                     
