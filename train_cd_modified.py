@@ -603,26 +603,36 @@ if __name__ == '__main__':
                     print(f"\ntrain_gt_change_bin_vis shape: {train_gt_change_bin_vis.shape}, dtype: {train_gt_change_bin_vis.dtype}")
                     print(f"train_gt_change_bin_vis unique values: {torch.unique(train_gt_change_bin_vis)}")
                     
-                    # Guaranteed binary mask creation
-                    if train_gt_change_bin_vis.dtype == torch.float32:
-                        # Convert floating point to binary 0/1
-                        train_change_vis_binary = (train_gt_change_bin_vis > 0.5).int()
-                    else:
-                        # For int types, ensure only 0/1 values
-                        train_change_vis_binary = (train_gt_change_bin_vis > 0).int()
-                        
+                    # Guaranteed binary mask creation - FORCE to 0/1 values
+                    train_change_vis_binary = (train_gt_change_bin_vis > 0).int()
                     print(f"train_change_vis_binary unique values: {torch.unique(train_change_vis_binary)}")
                     
-                    # Convert to numpy and ensure proper shape for colormapping
+                    # Convert to numpy for visualization
                     binary_mask_np = train_change_vis_binary.cpu().numpy()
                     print(f"binary_mask_np shape: {binary_mask_np.shape}, dtype: {binary_mask_np.dtype}, values: {np.unique(binary_mask_np)}")
                     
-                    # Create high contrast colormap (bright red on black)
-                    h, w = binary_mask_np.shape
-                    train_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
-                    # Use bright red color [255,0,0] for all change pixels (binary_mask_np > 0)
-                    mask = binary_mask_np > 0
-                    train_gt_change_color[mask] = [255, 0, 0]
+                    # Use matplotlib's colormap for most reliable binary visualization
+                    import matplotlib.pyplot as plt
+                    from matplotlib import colors
+                    
+                    # Create a custom colormap: black (0) -> bright red (1)
+                    cmap = colors.ListedColormap(['black', 'red'])
+                    
+                    # Apply the colormap
+                    plt.figure(figsize=(10, 10))
+                    plt.imshow(binary_mask_np, cmap=cmap)
+                    plt.axis('off')
+                    
+                    # Save to a BytesIO object
+                    from io import BytesIO
+                    buf = BytesIO()
+                    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+                    plt.close()
+                    buf.seek(0)
+                    
+                    # Convert to numpy array for wandb
+                    from PIL import Image
+                    train_gt_change_color = np.array(Image.open(buf))
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
