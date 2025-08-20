@@ -597,7 +597,7 @@ if __name__ == '__main__':
                         "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
                         "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                         "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(train_gt_change_bw, caption="GT Change (binary BW)")],
+                        "train/gt_change": [wandb.Image(train_gt_change_color, caption="GT Change (binary color)")],
                         "global_step": current_epoch * len(train_loader) + current_step
                     })
                 
