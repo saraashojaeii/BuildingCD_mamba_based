@@ -142,15 +142,24 @@ class SCDDataset(Dataset):
         L2_path = get_label2_path(self.root_dir, img_name)
         
         try:
-            img_label = np.array(Image.open(L_path), dtype=np.uint8)
-            img_label1 = np.array(Image.open(L1_path), dtype=np.uint8)
-            img_label2 = np.array(Image.open(L2_path), dtype=np.uint8)
+            img_label = np.array(Image.open(L_path).convert('RGB'), dtype=np.uint8)
+            img_label1 = np.array(Image.open(L1_path).convert('RGB'), dtype=np.uint8)
+            img_label2 = np.array(Image.open(L2_path).convert('RGB'), dtype=np.uint8)
         except Exception as e:
             print(f"Error loading label images for {img_name}: {e}")
             # Create empty arrays as fallback
             img_label = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
             img_label1 = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
             img_label2 = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
+
+        from data.util import rgb_mask_to_class
+        from data.colormap import second_colormap
+        if img_label.ndim == 3 and img_label.shape[2] == 3:
+            img_label = rgb_mask_to_class(img_label, second_colormap)
+        if img_label1.ndim == 3 and img_label1.shape[2] == 3:
+            img_label1 = rgb_mask_to_class(img_label1, second_colormap)
+        if img_label2.ndim == 3 and img_label2.shape[2] == 3:
+            img_label2 = rgb_mask_to_class(img_label2, second_colormap)
 
         # Transform images to tensors with normalization
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
