@@ -84,19 +84,21 @@ class CDDataset(Dataset):
         img_B = Image.open(B_path).convert('RGB')
 
         L_path = get_label_path(self.root_dir, self.img_name_list[index % self.data_len])
-        # Load the third channel of the image as the label
-        img_label_rgb = Image.open(L_path).convert('RGB')
-        _, _, img_label = img_label_rgb.split()
-
+        # Load label and ensure it is class indices, not RGB
+        img_label = Image.open(L_path).convert('RGB')
         img_label = np.array(img_label)
-        img_label = (img_label == 255).astype(np.uint8)
-        img_label = Image.fromarray(img_label)
+        from data.util import rgb_mask_to_class
+        from data.colormap import second_colormap
+        if img_label.ndim == 3 and img_label.shape[2] == 3:
+            img_label = rgb_mask_to_class(img_label, second_colormap)
+        # Now img_label is [H, W] with integer class indices
+        img_label = Image.fromarray(img_label.astype(np.uint8))
 
         img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
         # Convert label to tensor without normalization
-        img_label = totensor(img_label) * 255
-        img_label = img_label.squeeze().long() # Remove channel dim and convert to long
+        img_label = totensor(img_label).long()
+        img_label = img_label.squeeze() # Remove channel dim and convert to long
 
         return {'A':img_A, 'B':img_B, 'L':img_label, 'Index':index}
 
