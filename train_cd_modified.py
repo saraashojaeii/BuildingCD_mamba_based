@@ -401,7 +401,12 @@ if __name__ == '__main__':
                 # Robust label extraction and move to device
                 seg_t1 = (train_data['L1'] if 'L1' in train_data else train_data['L']).to(device)
                 seg_t2 = (train_data['L2'] if 'L2' in train_data else train_data['L']).to(device)
-                change = (train_data['change'] if 'change' in train_data else train_data['L']).to(device)
+                # Get change mask - use None if not provided, will be derived later
+                if 'change' in train_data and train_data['change'] is not None:
+                    change = train_data['change'].to(device)
+                else:
+                    # Derive binary change mask from seg labels
+                    change = normalize_change_target(seg_t1, seg_t2, None)
 
                 # Use gradient checkpointing to save memory
                 # Temporarily disable mixed precision to debug NaN
@@ -589,50 +594,43 @@ if __name__ == '__main__':
                     else:
                         gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=num_classes)
                     
-                    # Prepare binary GT change as a binary mask (0/1) for visualization
-                    train_gt_change_bin = normalize_change_target(seg_t1, seg_t2, change)
-                    # Ensure mask is [H, W] for visualization
-                    if train_gt_change_bin.dim() == 3 and train_gt_change_bin.size(0) == 1:
-                        train_gt_change_bin_vis = train_gt_change_bin.squeeze(0)
-                    elif train_gt_change_bin.dim() == 3:
-                        train_gt_change_bin_vis = train_gt_change_bin[0]
+                    # Prepare ground truth change mask for visualization
+                    # Use the already loaded change mask directly
+                    if change is not None:
+                        # Ensure it's the right shape for visualization
+                        if change.dim() == 4 and change.size(1) == 1:  # [B,1,H,W]
+                            train_change_vis = change[0].squeeze(0)  # Convert to [H,W]
+                        elif change.dim() == 3:  # [B,H,W]
+                            train_change_vis = change[0]
+                        elif change.dim() == 2:  # [H,W]
+                            train_change_vis = change
+                        else:
+                            train_change_vis = change
+                        
+                        # Convert to CPU and ensure binary
+                        train_change_vis = train_change_vis.detach().cpu()
+                        print(f"\ntrain_change_vis shape: {train_change_vis.shape}, dtype: {train_change_vis.dtype}")
+                        print(f"train_change_vis unique values: {torch.unique(train_change_vis)}")
                     else:
-                        train_gt_change_bin_vis = train_gt_change_bin
+                        # This shouldn't happen now since we derive it above
+                        train_change_vis = torch.zeros_like(seg_t1[0])
                     
-                    # Debug what we have
-                    print(f"\ntrain_gt_change_bin_vis shape: {train_gt_change_bin_vis.shape}, dtype: {train_gt_change_bin_vis.dtype}")
-                    print(f"train_gt_change_bin_vis unique values: {torch.unique(train_gt_change_bin_vis)}")
-                    
-                    # Guaranteed binary mask creation - FORCE to 0/1 values
-                    train_change_vis_binary = (train_gt_change_bin_vis > 0).int()
+                    # Force to pure binary if needed
+                    if train_change_vis.dtype == torch.float32:
+                        # Convert to binary 0/1 if it's floating point
+                        train_change_vis_binary = (train_change_vis > 0.5).int()
+                    else:
+                        # For int types, ensure only 0/1 values  
+                        train_change_vis_binary = (train_change_vis > 0).int()
+                        
                     print(f"train_change_vis_binary unique values: {torch.unique(train_change_vis_binary)}")
                     
-                    # Convert to numpy for visualization
+                    # Create custom binary colormap for better visibility
+                    # Black (0) for no change, bright red (1) for change
                     binary_mask_np = train_change_vis_binary.cpu().numpy()
-                    print(f"binary_mask_np shape: {binary_mask_np.shape}, dtype: {binary_mask_np.dtype}, values: {np.unique(binary_mask_np)}")
-                    
-                    # Use matplotlib's colormap for most reliable binary visualization
-                    import matplotlib.pyplot as plt
-                    from matplotlib import colors
-                    
-                    # Create a custom colormap: black (0) -> bright red (1)
-                    cmap = colors.ListedColormap(['black', 'red'])
-                    
-                    # Apply the colormap
-                    plt.figure(figsize=(10, 10))
-                    plt.imshow(binary_mask_np, cmap=cmap)
-                    plt.axis('off')
-                    
-                    # Save to a BytesIO object
-                    from io import BytesIO
-                    buf = BytesIO()
-                    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
-                    plt.close()
-                    buf.seek(0)
-                    
-                    # Convert to numpy array for wandb
-                    from PIL import Image
-                    train_gt_change_color = np.array(Image.open(buf))
+                    h, w = binary_mask_np.shape
+                    train_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
+                    train_gt_change_color[binary_mask_np == 1] = [255, 0, 0]  # Bright red for changes
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
