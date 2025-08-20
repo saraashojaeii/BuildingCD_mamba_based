@@ -730,40 +730,6 @@ if __name__ == '__main__':
                     elif opt['model']['loss'] == 'extended_triplet':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
                         u = val_change_pred if val_change_pred.shape[1] == 1 else val_change_pred[:, 1:2]
-                        val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
-                        preds = (val_seg_logits_t1, val_seg_logits_t2, u)
-                        val_targets = {"seg_t1": val_seg_t1, "seg_t2": val_seg_t2, "change": val_change_bin}
-                        val_loss, val_loss_dict = loss_fun(preds, val_targets)
-                    else:
-                        val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
-                        # Temporarily disable mixed precision to debug NaN (consistent with training)
-                        # Pack targets into dictionary format expected by MultiClassCDLoss
-                        val_targets = {
-                            "seg_t1": val_seg_t1,
-                            "seg_t2": val_seg_t2, 
-                            "change": val_change
-                        }
-                        val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
-                    else:
-                        # Binary validation branch
-                        if isinstance(val_outputs, tuple) and len(val_outputs) >= 3:
-                            val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
-                        else:
-                            # Some models may return only change head
-                            val_change_pred = val_outputs[2] if isinstance(val_outputs, (list, tuple)) and len(val_outputs) > 2 else val_outputs
-                            b, _, h, w = val_change_pred.shape
-                            val_seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=val_change_pred.device, dtype=val_change_pred.dtype)
-                            val_seg_logits_t2 = torch.zeros_like(val_seg_logits_t1)
-                        # Create binary ground truth for validation (robust [B,H,W])
-                        val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, val_change)
-                        # Use 2-class criterion
-                        val_loss = loss_fun_change(val_change_pred, val_change_bin)
-                        # For logging completeness if real seg logits weren't returned
-                        if 'val_seg_logits_t1' not in locals():
-                            b, _, h, w = val_change_pred.shape
-                            val_seg_logits_t1 = torch.zeros((b, num_classes, h, w), device=val_change_pred.device, dtype=val_change_pred.dtype)
-                            val_seg_logits_t2 = torch.zeros_like(val_seg_logits_t1)
-                        val_loss_dict = {'seg_t1': 0, 'seg_t2': 0, 'change': val_loss.item()}
                     
                     val_loss_total += val_loss.item()
                     val_steps += 1
