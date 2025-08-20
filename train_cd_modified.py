@@ -600,23 +600,28 @@ if __name__ == '__main__':
                         train_gt_change_bin_vis = train_gt_change_bin
                     
                     # Debug what we have
-                    print(f"\ntrain_gt_change_bin_vis unique values BEFORE: {torch.unique(train_gt_change_bin_vis)}")
+                    print(f"\ntrain_gt_change_bin_vis shape: {train_gt_change_bin_vis.shape}, dtype: {train_gt_change_bin_vis.dtype}")
+                    print(f"train_gt_change_bin_vis unique values: {torch.unique(train_gt_change_bin_vis)}")
                     
-                    # Force to pure binary if needed
+                    # Guaranteed binary mask creation
                     if train_gt_change_bin_vis.dtype == torch.float32:
-                        # Convert to binary 0/1 if it's floating point
+                        # Convert floating point to binary 0/1
                         train_change_vis_binary = (train_gt_change_bin_vis > 0.5).int()
                     else:
-                        train_change_vis_binary = train_gt_change_bin_vis
+                        # For int types, ensure only 0/1 values
+                        train_change_vis_binary = (train_gt_change_bin_vis > 0).int()
                         
-                    print(f"train_change_vis_binary unique values AFTER: {torch.unique(train_change_vis_binary)}")
+                    print(f"train_change_vis_binary unique values: {torch.unique(train_change_vis_binary)}")
                     
-                    # Create custom binary colormap for better visibility
-                    # Black (0) for no change, bright red (1) for change
+                    # Convert to numpy and ensure proper shape for colormapping
                     binary_mask_np = train_change_vis_binary.cpu().numpy()
+                    print(f"binary_mask_np shape: {binary_mask_np.shape}, dtype: {binary_mask_np.dtype}, values: {np.unique(binary_mask_np)}")
+                    
+                    # Create high contrast colormap (bright red on black)
                     h, w = binary_mask_np.shape
                     train_gt_change_color = np.zeros((h, w, 3), dtype=np.uint8)
-                    train_gt_change_color[binary_mask_np == 1] = [255, 0, 0]  # Bright red for changes
+                    # Explicitly set red channel to maximum for all change pixels
+                    train_gt_change_color[binary_mask_np > 0, 0] = 255  # Red channel
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
