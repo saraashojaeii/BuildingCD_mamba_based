@@ -155,7 +155,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_val_batches', type=int, default=0, help='Limit number of validation batches per epoch (0 = no limit)')
     parser.add_argument('--max_test_batches', type=int, default=0, help='Limit number of test batches (0 = no limit)')
     # Threshold for converting probs to binary mask (class-1)
-    parser.add_argument('--change_threshold', type=float, default=0.5, help='Probability threshold for change class (class-1) binarization')
+    parser.add_argument('--change_threshold', type=float, default=0.2, help='Probability threshold for change class (class-1) binarization')
     # Auxiliary self-supervised loss weight
     parser.add_argument('--aux_recon_weight', type=float, default=0.1, help='Weight for auxiliary reconstruction loss')
 
@@ -1257,6 +1257,7 @@ if __name__ == '__main__':
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                             # Multi-class segmentations (colorized)
+                            "test/pred_seg_t1_ali": [wandb.Image(pred_seg_t1[0].values.detach().cpu().numpy(), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
                             # Confidence maps
