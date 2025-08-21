@@ -779,6 +779,8 @@ if __name__ == '__main__':
 
                 # For metric, use argmax over 2-class change head
                 G_pred = torch.argmax(change_pred, dim=1)
+                print("################################################")
+                print(f"G_pred unique values: {(change_pred)}")
                 binary_pred = G_pred.int()
                 
                 # Ground truth already binary (saved above)
