@@ -8,16 +8,16 @@
   },
 
   "path_cd": {
-    "log": "/root/home/pvc/Building_changedetection_job/experiments/logs",
-    "result": "/root/home/pvc/Building_changedetection_job/experiments/results",
-    "checkpoint": "/root/home/pvc/Building_changedetection_job/experiments/checkpoint",
+    "log": "/mnt/dest/Building_changedetection_job/experiments/logs",
+    "result": "/mnt/dest/Building_changedetection_job/experiments/results",
+    "checkpoint": "/mnt/dest/Building_changedetection_job/experiments/checkpoint",
     "resume_state": null
   },
 
   "datasets": {
     "train": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/root/home/pvc/SECOND/train",
+      "datasetroot": "/mnt/source/SECOND/train",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
@@ -26,7 +26,7 @@
     },
     "val": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/root/home/pvc/SECOND/val",
+      "datasetroot": "/mnt/source/SECOND/val",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
@@ -36,7 +36,7 @@
 
     "test": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/root/home/pvc/SECOND/test",
+      "datasetroot": "/mnt/source/SECOND/test",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
