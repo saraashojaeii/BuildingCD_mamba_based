@@ -277,7 +277,7 @@ if __name__ == '__main__':
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # TripletChangeSegLoss expects a single-channel change logit
                     u = change_pred if change_pred.shape[1] == 1 else change_pred[:, 1:2]
-                    change_bin = normalize_change_target(seg_t1, seg_t2, change)
+                    change_bin = normalize_change_target(train_data['L1'], train_data['L2'], change)
                     preds = (seg_logits_t1, seg_logits_t2, u)
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change_bin}
                     if current_step == 0:
