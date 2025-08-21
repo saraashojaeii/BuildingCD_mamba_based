@@ -1261,7 +1261,7 @@ if __name__ == '__main__':
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                             # Multi-class segmentations (colorized)
-                            "test/pred_seg_t1_ali": [wandb.Image(pred_seg_t1_ali[0], caption="Test Pred Seg T1 (multi-class)")],
+                            "test/pred_seg_t1_ali": [wandb.Image(pred_seg_t1_ali[0]*40, caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
                             # Confidence maps
