@@ -412,6 +412,26 @@ if __name__ == '__main__':
                 # Temporarily disable mixed precision to debug NaN
                 outputs = cd_model(train_im1, train_im2)
                 
+                # Debug: Compare outputs vs ground-truth dtypes/shapes/devices (first batch only)
+                if current_step == 0:
+                    def _tinfo(t: torch.Tensor, name: str):
+                        try:
+                            tmin = t.min().item()
+                            tmax = t.max().item()
+                            rng = f", min={tmin:.4f}, max={tmax:.4f}"
+                        except Exception:
+                            rng = ""
+                        logger.info(f"[TRAIN dtype-check] {name}: shape={tuple(t.shape)}, dtype={t.dtype}, device={t.device}{rng}")
+                    if isinstance(outputs, (list, tuple)):
+                        for i, out in enumerate(outputs):
+                            _tinfo(out, f"output[{i}]")
+                    else:
+                        _tinfo(outputs, "output")
+                    _tinfo(seg_t1, "gt/seg_t1")
+                    _tinfo(seg_t2, "gt/seg_t2")
+                    if change is not None:
+                        _tinfo(change, "gt/change(raw)")
+
                 # Debug: Check for NaN in model outputs
                 # for i, output in enumerate(outputs):
                 #     if torch.isnan(output).any() or torch.isinf(output).any():
@@ -521,6 +541,9 @@ if __name__ == '__main__':
                     change_bin = normalize_change_target(seg_t1, seg_t2, change)
                     preds = (seg_logits_t1, seg_logits_t2, u)
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change_bin}
+                    if current_step == 0:
+                        # Show post-normalization change target dtype
+                        logger.info(f"[TRAIN dtype-check] change_bin: shape={tuple(change_bin.shape)}, dtype={change_bin.dtype}, device={change_bin.device}")
                     train_loss, ext_loss_dict = loss_fun(preds, labels)
                     train_loss = train_loss / accumulation_steps
                     # for compatibility with downstream logging keys
@@ -546,6 +569,8 @@ if __name__ == '__main__':
                         seg_logits_t2 = torch.zeros_like(seg_logits_t1)
                     # Create binary ground truth robustly: [B,H,W] long
                     change_bin = normalize_change_target(seg_t1, seg_t2, change)
+                    if current_step == 0:
+                        logger.info(f"[TRAIN dtype-check] change_bin: shape={tuple(change_bin.shape)}, dtype={change_bin.dtype}, device={change_bin.device}")
                     # Compute loss against binary targets (use 2-class criterion)
                     train_loss = loss_fun_change(change_pred, change_bin)
                     # Scale loss for gradient accumulation
@@ -783,6 +808,25 @@ if __name__ == '__main__':
                     
                     # Forward pass
                     val_outputs = cd_model(val_img1, val_img2)
+                    # Debug: Compare outputs vs ground-truth dtypes/shapes/devices (first val batch only)
+                    if val_step == 0:
+                        def _vtinfo(t: torch.Tensor, name: str):
+                            try:
+                                tmin = t.min().item()
+                                tmax = t.max().item()
+                                rng = f", min={tmin:.4f}, max={tmax:.4f}"
+                            except Exception:
+                                rng = ""
+                            logger.info(f"[VAL dtype-check] {name}: shape={tuple(t.shape)}, dtype={t.dtype}, device={t.device}{rng}")
+                        if isinstance(val_outputs, (list, tuple)):
+                            for i, out in enumerate(val_outputs):
+                                _vtinfo(out, f"output[{i}]")
+                        else:
+                            _vtinfo(val_outputs, "output")
+                        _vtinfo(val_seg_t1, "gt/seg_t1")
+                        _vtinfo(val_seg_t2, "gt/seg_t2")
+                        if val_change is not None:
+                            _vtinfo(val_change, "gt/change(raw)")
                     
                     if opt['model']['loss'] == 'multi_class_cd':
                         val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs

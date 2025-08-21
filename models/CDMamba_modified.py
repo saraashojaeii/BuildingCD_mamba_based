@@ -316,27 +316,6 @@ class CDMamba(nn.Module):
             for i in range(self.stage)
         ])
 
-        # self.l_gf1 = L_GF(self.channels_list[0], conv_mode=self.local_query_model, resdiual=self.resdiual, act=self.mamba_act)
-        # self.l_gf2 = L_GF(self.channels_list[1], conv_mode=self.local_query_model, resdiual=self.resdiual, act=self.mamba_act)
-        # self.l_gf3 = L_GF(self.channels_list[2], conv_mode=self.local_query_model, resdiual=self.resdiual, act=self.mamba_act)
-        # self.l_gf4 = L_GF(self.channels_list[3], conv_mode=self.local_query_model, resdiual=self.resdiual, act=self.mamba_act)
-        # self.l_gf = nn.Sequential(self.l_gf1, self.l_gf2, self.l_gf3, self.l_gf4)
-
-
-        # self.g_gf1 = G_GF(self.channels_list[0], resdiual=self.resdiual, act=self.mamba_act)
-        # self.g_gf2 = G_GF(self.channels_list[1], resdiual=self.resdiual, act=self.mamba_act)
-        # self.g_gf3 = G_GF(self.channels_list[2], resdiual=self.resdiual, act=self.mamba_act)
-        # self.g_gf4 = G_GF(self.channels_list[3], resdiual=self.resdiual, act=self.mamba_act)
-        # self.g_gf = nn.Sequential(self.g_gf1, self.g_gf2, self.g_gf3, self.g_gf4)
-
-        # self.ag1 = AdaptiveGate(self.channels_list[0])
-        # self.ag2 = AdaptiveGate(self.channels_list[1])
-        # self.ag3 = AdaptiveGate(self.channels_list[2])
-        # self.ag4 = AdaptiveGate(self.channels_list[3])
-        # self.ag = nn.Sequential(self.ag1, self.ag2, self.ag3, self.ag4)
-
-
-
         if dropout_prob is not None:
             self.dropout = Dropout[Dropout.DROPOUT, spatial_dims](dropout_prob)
 
