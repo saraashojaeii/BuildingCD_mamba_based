@@ -1238,6 +1238,10 @@ if __name__ == '__main__':
                         # Segmentation predictions and per-pixel confidence (max prob)
                         pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
+                        pred_seg_t1_ali = pred_seg_t1.detach().cpu().numpy()
+                        pred_seg_t2_ali = pred_seg_t2.detach().cpu().numpy()
+
+
                         print("pred_seg_t1.shape", pred_seg_t1.shape)
                         print("pred_seg_t2.shape", pred_seg_t2.shape)
 
@@ -1257,7 +1261,7 @@ if __name__ == '__main__':
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                             # Multi-class segmentations (colorized)
-                            "test/pred_seg_t1_ali": [wandb.Image(pred_seg_t1[0].values.detach().cpu().numpy(), caption="Test Pred Seg T1 (multi-class)")],
+                            "test/pred_seg_t1_ali": [wandb.Image(pred_seg_t1_ali[0], caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
                             # Confidence maps
