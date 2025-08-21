@@ -1238,6 +1238,15 @@ if __name__ == '__main__':
                         # Segmentation predictions and per-pixel confidence (max prob)
                         pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
+                        print("pred_seg_t1.shape", pred_seg_t1.shape)
+                        print("pred_seg_t2.shape", pred_seg_t2.shape)
+
+                        print("pred_seg_t1.min()", pred_seg_t1.min())
+                        print("pred_seg_t1.max()", pred_seg_t1.max())
+                        print("pred_seg_t2.min()", pred_seg_t2.min())
+                        print("pred_seg_t2.max()", pred_seg_t2.max())
+                        
+
                         seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)  # [C,H,W]
                         seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
                         seg_t1_max_prob = torch.max(seg_t1_probs, dim=0).values.detach().cpu().numpy()  # [H,W]
