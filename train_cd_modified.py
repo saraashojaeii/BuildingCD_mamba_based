@@ -632,7 +632,8 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
                     pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
-                    pred_change = torch.argmax(change_pred, dim=1)
+                    change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
+                    pred_change = (change_p1 > args.change_threshold).long()
                 
                 # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
                 if current_step == 0 and current_epoch % 1 == 0:
@@ -777,10 +778,11 @@ if __name__ == '__main__':
                 log_dict['loss_change'] = loss_dict['change']
                 epoch_loss += train_loss.item()
 
-                # For metric, use argmax over 2-class change head
-                G_pred = torch.argmax(change_pred, dim=1)
+                # For metric, threshold class-1 probability over 2-class change head
+                change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
+                G_pred = (change_p1 > args.change_threshold).long()
                 print("################################################")
-                print(f"G_pred unique values: {(change_pred)}")
+                print(f"G_pred unique values: {torch.unique(G_pred[0])}")
                 binary_pred = G_pred.int()
                 
                 # Ground truth already binary (saved above)
