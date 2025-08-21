@@ -24,126 +24,12 @@ import torch.nn.functional as F
 from datetime import datetime
 from itertools import islice
 
-def normalize_change_target(seg1: torch.Tensor | None,
-                            seg2: torch.Tensor | None,
-                            change_gt: torch.Tensor | None) -> torch.Tensor:
-    """Return binary change target of shape [B, H, W] (dtype long, {0,1}).
-
-    Handles cases where:
-    - change_gt is provided in various formats (NCHW with C=1, NHWC RGB, or [B,H,W] int/float)
-    - or must be derived from seg1 and seg2 which may be RGB (NHWC), one-hot/logits (NCHW, C>1),
-      or single-channel (NCHW, C=1 or [B,H,W]).
-    """
-    def _to_index_mask(x: torch.Tensor) -> torch.Tensor:
-        # Convert arbitrary segmentation label tensor to [B,H,W] integer indices
-        if x.dim() == 4:
-            # NCHW
-            if x.size(1) == 1:
-                return x.squeeze(1).long()
-            # NHWC (e.g., RGB mask)
-            if x.size(-1) == 3 and x.shape[1] != 3:
-                # Assume channels-last
-                return x.any(dim=-1).long()  # fallback to binary presence per-pixel
-            # Multi-channel: take argmax as class indices
-            return torch.argmax(x, dim=1).long()
-        elif x.dim() == 3:
-            # Already [B,H,W]
-            return x.long()
-        else:
-            raise ValueError(f"Unsupported seg shape: {tuple(x.shape)}")
-
-    if change_gt is not None:
-        c = change_gt
-        # If NHWC RGB -> any over last channel
-        if c.dim() == 4 and c.size(-1) == 3 and (c.shape[1] != 3):
-            c = c.any(dim=-1).long()
-        elif c.dim() == 4 and c.size(1) == 1:
-            c = c.squeeze(1).long()
-        elif c.dim() == 3:
-            # [B,H,W] possibly float/binary
-            c = (c > 0).long()
-        else:
-            # As a conservative fallback
-            c = _to_index_mask(c)
-            c = (c > 0).long()
-        return c
-
-    # Derive from seg1 and seg2
-    if seg1 is None or seg2 is None:
-        raise ValueError("seg1/seg2 required when change_gt is None")
-
-    # Handle RGB NHWC
-    if seg1.dim() == 4 and seg1.size(-1) == 3 and (seg1.shape[1] != 3) and \
-       seg2.dim() == 4 and seg2.size(-1) == 3 and (seg2.shape[1] != 3):
-        change = (seg1 != seg2).any(dim=-1).long()
-        return change
-
-    # Convert to class indices if needed
-    s1 = _to_index_mask(seg1)
-    s2 = _to_index_mask(seg2)
-    change = (s1 != s2).long()
-    return change
-
-def create_color_mask(tensor, num_classes: int = 10):
-    """Convert a 2-D label tensor/ndarray to an RGB image with a categorical colormap.
-
-    This is used for logging multi-class segmentation masks to wandb so that they
-    appear in color instead of a binary/grayscale mask.
-    """
-    import numpy as _np
-    import matplotlib as _mpl
-
-    # Convert to numpy array
-    if isinstance(tensor, torch.Tensor):
-        arr = tensor.detach().cpu().numpy()
-    else:
-        arr = _np.asarray(tensor)
-
-    # Remove singleton dimensions if they exist (e.g. 1×H×W)
-    if arr.ndim == 3 and arr.shape[0] == 1:
-        arr = _np.squeeze(arr, axis=0)
-    
-    # Handle case where ground truth is already RGB (H, W, 3)
-    if arr.ndim == 3 and arr.shape[2] == 3:
-        # Already an RGB image, return as uint8
-        return arr.astype(_np.uint8)
-    
-    if arr.ndim != 2:
-        raise ValueError(f"Expected 2-D mask or 3-D RGB image, got shape {arr.shape}")
-
-    h, w = arr.shape
-    unique_vals = _np.unique(arr)
-    
-    # Fix matplotlib deprecation warning and ensure class 0 is visible
-    cmap = _mpl.colormaps.get_cmap('tab10')
-    if hasattr(cmap, 'resampled'):
-        cmap = cmap.resampled(num_classes)
-    rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
-    
-    # Custom color mapping to ensure class 0 is visible (not black)
-    colors = []
-    for i in range(num_classes):
-        color = _np.array(cmap(i)[:3]) * 255
-        # If color is too dark (close to black), make it brighter
-        if _np.sum(color) < 50:  # Very dark color
-            color = _np.array([255, 0, 0])  # Make it red instead
-        colors.append(color.astype(_np.uint8))
-    
-    # Apply color mapping
-    for cls in range(num_classes):
-        if cls in unique_vals:
-            rgb[arr == cls] = colors[cls]
-    
-    return rgb
-
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='/home/saraashojaeii/git/BuildingCD_mamba_based/config/second_cdmamba/second_cdmamba.json',
                         help='JSON file for configuration')
     parser.add_argument('--phase', type=str, default='train',
                         choices=['train', 'test'], help='Run either train(training + validation) or testing',)
-    parser.add_argument('--gpu_ids', type=str, default=None)
-    parser.add_argument('-log_eval', action='store_true')
     # Accept naming-related args so CLI doesn't error (used only for run naming)
     parser.add_argument('--model', type=str, default='', help='Model name (for run naming only)')
     parser.add_argument('--dataset', type=str, default='', help='Dataset name (for run naming only)')
@@ -156,8 +42,6 @@ if __name__ == '__main__':
     parser.add_argument('--max_test_batches', type=int, default=0, help='Limit number of test batches (0 = no limit)')
     # Threshold for converting probs to binary mask (class-1)
     parser.add_argument('--change_threshold', type=float, default=0.2, help='Probability threshold for change class (class-1) binarization')
-    # Auxiliary self-supervised loss weight
-    parser.add_argument('--aux_recon_weight', type=float, default=0.1, help='Weight for auxiliary reconstruction loss')
 
     # Parse config
     args = parser.parse_args()
@@ -204,17 +88,6 @@ if __name__ == '__main__':
     # Set device with comprehensive debugging
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
-    
-    # GPU Debugging Information
-    logger.info(f'CUDA Available: {torch.cuda.is_available()}')
-    if torch.cuda.is_available():
-        logger.info(f'CUDA Device Count: {torch.cuda.device_count()}')
-        logger.info(f'Current CUDA Device: {torch.cuda.current_device()}')
-        logger.info(f'CUDA Device Name: {torch.cuda.get_device_name()}')
-        logger.info(f'CUDA Memory Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB')
-        logger.info(f'CUDA Memory Cached: {torch.cuda.memory_reserved() / 1024**3:.2f} GB')
-    else:
-        logger.warning('CUDA is not available! Training will run on CPU (very slow)')
 
     # Initialize wandb only on main process
     if opt.get('wandb') and opt['wandb'].get('project'):
@@ -301,13 +174,6 @@ if __name__ == '__main__':
     elif opt['model']['loss'] == 'dice':
         loss_fun = DiceOnlyLoss(num_classes=num_classes)
         loss_fun_change = DiceOnlyLoss(num_classes=2)
-    elif opt['model']['loss'] == 'ce2_dice1':
-        loss_fun = CE2Dice1Loss(num_classes=num_classes)
-        loss_fun_change = CE2Dice1Loss(num_classes=2)
-    elif opt['model']['loss'] == 'ce1_dice2':
-        loss_fun = CE1Dice2Loss(num_classes=num_classes)
-        loss_fun_change = CE1Dice2Loss(num_classes=2)
-    # Add other loss types if needed, e.g., for 'ce_scl'
     elif opt['model']['loss'] == 'extended_triplet':
         # Extended multi-task loss: seg(t1)+seg(t2)+change + cross-time consistency + coupling
         base_seg = CEDiceLoss(num_classes=num_classes)
@@ -324,8 +190,6 @@ if __name__ == '__main__':
         )
     elif opt['model']['loss'] == 'multi_class_cd':
         loss_fun = MultiClassCDLoss(num_classes=num_classes, loss_weights=opt['model'].get('loss_weights'))
-    # elif opt['model']['loss'] == 'ce_scl':
-    #     loss_fun = CEDiceLoss(num_classes=num_classes) # Or a specific SCL loss class
     else:
         raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
@@ -355,7 +219,6 @@ if __name__ == '__main__':
 
     if torch.cuda.is_available():
         torch.cuda.set_per_process_memory_fraction(0.8)  # if you really want this
-    # Remove any empty_cache()/synchronize() calls outside diagnostics
 
     #################
     # Training loop #
@@ -378,10 +241,6 @@ if __name__ == '__main__':
 
             epoch_loss = 0
 
-            # Initial memory cleanup
-            # torch.cuda.empty_cache()
-            # torch.cuda.synchronize()
-
             # Reduce gradient accumulation for memory savings
             accumulation_steps = 2  # Effective batch size = 1 * 2 = 2
             
@@ -391,42 +250,12 @@ if __name__ == '__main__':
             _train_total = min(len(train_loader), _max_train) if _max_train > 0 else len(train_loader)
             _train_iter = islice(train_loader, _max_train) if _max_train > 0 else train_loader
             for current_step, train_data in enumerate(tqdm(_train_iter, total=_train_total, desc=f"Train {current_epoch}/{opt['train']['n_epoch']}")):
-                # Aggressive memory cleanup at start of each step
-                # torch.cuda.empty_cache()
-                # torch.cuda.synchronize()
                 
                 # Move data to GPU manually
                 train_im1 = train_data['A'].to(device)
                 train_im2 = train_data['B'].to(device)
-                # Optional: record sample identifiers if provided by dataset
-                if current_step == 0:
-                    ids_A = train_data.get('A_path') or train_data.get('A_id')
-                    ids_B = train_data.get('B_path') or train_data.get('B_id')
-                    ids_L1 = train_data.get('L1_path') or train_data.get('L1_id')
-                    ids_L2 = train_data.get('L2_path') or train_data.get('L2_id')
-                    ids_Ch = train_data.get('change_path') or train_data.get('change_id')
-                    if ids_A is not None:
-                        logger.info(f"[TRAIN ids] A[0]: {ids_A[0] if isinstance(ids_A, (list, tuple)) else ids_A}")
-                    if ids_B is not None:
-                        logger.info(f"[TRAIN ids] B[0]: {ids_B[0] if isinstance(ids_B, (list, tuple)) else ids_B}")
-                    if ids_L1 is not None:
-                        logger.info(f"[TRAIN ids] L1[0]: {ids_L1[0] if isinstance(ids_L1, (list, tuple)) else ids_L1}")
-                    if ids_L2 is not None:
-                        logger.info(f"[TRAIN ids] L2[0]: {ids_L2[0] if isinstance(ids_L2, (list, tuple)) else ids_L2}")
-                    if ids_Ch is not None:
-                        logger.info(f"[TRAIN ids] change[0]: {ids_Ch[0] if isinstance(ids_Ch, (list, tuple)) else ids_Ch}")
-                # Robust label extraction and move to device
-                seg_t1 = (train_data['L1'] if 'L1' in train_data else train_data['L']).to(device)
-                seg_t2 = (train_data['L2'] if 'L2' in train_data else train_data['L']).to(device)
-                # Get change mask - use None if not provided, will be derived later
-                if 'change' in train_data and train_data['change'] is not None:
-                    change = train_data['change'].to(device)
-                else:
-                    # Derive binary change mask from seg labels
-                    change = normalize_change_target(seg_t1, seg_t2, None)
 
                 # Use gradient checkpointing to save memory
-                # Temporarily disable mixed precision to debug NaN
                 outputs = cd_model(train_im1, train_im2)
                 if current_step == 0:
                     import hashlib
@@ -438,154 +267,11 @@ if __name__ == '__main__':
                     except Exception:
                         pass
                 
-                # Debug: Compare outputs vs ground-truth dtypes/shapes/devices (first batch only)
-                if current_step == 0:
-                    def _tinfo(t: torch.Tensor, name: str):
-                        try:
-                            tmin = t.min().item()
-                            tmax = t.max().item()
-                            rng = f", min={tmin:.4f}, max={tmax:.4f}"
-                        except Exception:
-                            rng = ""
-                        logger.info(f"[TRAIN dtype-check] {name}: shape={tuple(t.shape)}, dtype={t.dtype}, device={t.device}{rng}")
-                    if isinstance(outputs, (list, tuple)):
-                        for i, out in enumerate(outputs):
-                            _tinfo(out, f"output[{i}]")
-                    else:
-                        _tinfo(outputs, "output")
-                    _tinfo(seg_t1, "gt/seg_t1")
-                    _tinfo(seg_t2, "gt/seg_t2")
-                    if change is not None:
-                        _tinfo(change, "gt/change(raw)")
-
-                # Debug: Check for NaN in model outputs
-                # for i, output in enumerate(outputs):
-                #     if torch.isnan(output).any() or torch.isinf(output).any():
-                #         logger.warning(f"NaN/Inf detected in model output {i}: nan={torch.isnan(output).sum()}, inf={torch.isinf(output).sum()}")
-                #         logger.warning(f"Output {i} stats: min={output.min()}, max={output.max()}, mean={output.mean()}")
-                
                 # Clear input tensors from memory immediately after forward pass
                 del train_im1, train_im2
-                # torch.cuda.empty_cache()
-
-                if opt['model']['loss'] == 'multi_class_cd':
-                    # Debug: Check input data for NaN/Inf
-                    # for name, tensor in [('seg_t1', seg_t1), ('seg_t2', seg_t2), ('change', change)]:
-                    #     if torch.isnan(tensor).any() or torch.isinf(tensor).any():
-                    #         logger.warning(f"NaN/Inf detected in {name}: nan={torch.isnan(tensor).sum()}, inf={torch.isinf(tensor).sum()}")
-                    #         logger.warning(f"{name} stats: min={tensor.min()}, max={tensor.max()}, shape={tensor.shape}")
-                    
-                    labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
-                    if current_step == 0:
-                        # Verify change consistency if provided
-                        try:
-                            _derived = normalize_change_target(seg_t1, seg_t2, None)
-                            mism = (_derived != (change > 0).long()).float().mean().item()
-                            logger.info(f"[TRAIN consistency] derived_vs_provided_change_mismatch={mism:.6f}")
-                        except Exception as e:
-                            logger.warning(f"[TRAIN consistency] could not compare change masks: {e}")
-                    # Temporarily disable mixed precision to debug NaN
-                    train_loss, loss_dict = loss_fun(outputs, labels)
-                    
-                    # Debug: Check individual loss components
-                    # logger.info(f"Step {current_step}: Loss components - seg_t1: {loss_dict['seg_t1']:.6f}, seg_t2: {loss_dict['seg_t2']:.6f}, change: {loss_dict['change']:.6f}, total: {train_loss.item():.6f}")
-                    # Scale loss for gradient accumulation
-                    train_loss = train_loss / accumulation_steps
-                    seg_logits_t1, seg_logits_t2, change_pred = outputs
-                    with torch.no_grad():
-                        pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
-                        pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
-                        # Thresholded binarization for change using class-1 probability
-                        change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
-                        pred_change = (change_p1 > args.change_threshold).long()
-
-                        # After computing pred_seg_t2
-                        vals1, cnts1 = torch.unique(pred_seg_t1, return_counts=True)
-                        print("TRAIN pred_seg_t1 class counts:", dict(zip(vals1.tolist(), cnts1.tolist())))
-                        # After computing pred_seg_t2
-                        vals2, cnts2 = torch.unique(pred_seg_t2, return_counts=True)
-                        print("TRAIN pred_seg_t2 class counts:", dict(zip(vals2.tolist(), cnts2.tolist())))
-                        # After computing pred_seg_t2
-                        vals3, cnts3 = torch.unique(pred_change, return_counts=True)
-                        print("TRAIN pred_change class counts:", dict(zip(vals3.tolist(), cnts3.tolist())))
-
-                    
-                    # Log input images to wandb (first batch of each epoch)
-                    train_img1_np = train_data['A'][0].detach().cpu()
-                    train_img2_np = train_data['B'][0].detach().cpu()
-                    def norm_img(img):
-                        img = img
-                        if img.min() < 0:
-                            img = (img + 1.0) / 2.0
-                        img = (img * 255.0).clamp(0, 255).byte()
-                        return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                    wandb.log({
-                        "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
-                        "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
-                    }, commit=False)
 
 
-                    # Log masks to wandb (log only for the first batch of each epoch to avoid excessive logging)
-                    if current_step == 0 and current_epoch % 1 == 0:
-                        # Handle ground truth masks - check if they're already RGB or need color mapping
-                        seg_t1_np = seg_t1[0].detach().cpu().numpy()
-                        seg_t2_np = seg_t2[0].detach().cpu().numpy()
-                        
-                        # If ground truth is already RGB (3 channels), scale it properly
-                        if seg_t1_np.ndim == 3 and seg_t1_np.shape[2] == 3:
-                            # Scale from 0-max_val to 0-255 for proper display
-                            max_val = seg_t1_np.max()
-                            if max_val > 0:
-                                gt_seg_t1_img = ((seg_t1_np / max_val) * 255).astype(np.uint8)
-                            else:
-                                gt_seg_t1_img = seg_t1_np.astype(np.uint8)
-                        else:
-                            gt_seg_t1_img = create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes'])
-                        
-                        if seg_t2_np.ndim == 3 and seg_t2_np.shape[2] == 3:
-                            # Scale from 0-max_val to 0-255 for proper display
-                            max_val = seg_t2_np.max()
-                            if max_val > 0:
-                                gt_seg_t2_img = ((seg_t2_np / max_val) * 255).astype(np.uint8)
-                            else:
-                                gt_seg_t2_img = seg_t2_np.astype(np.uint8)
-                        else:
-                            gt_seg_t2_img = create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes'])
-                        
-                        # Also log probability maps for debugging
-                        seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)
-                        seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
-                        change_probs = torch.softmax(change_pred[0], dim=0)
-                        
-                        # Create probability visualizations (show max probability across classes)
-                        seg_t1_max_prob = torch.max(seg_t1_probs, dim=0)[0].detach().cpu().numpy()
-                        seg_t2_max_prob = torch.max(seg_t2_probs, dim=0)[0].detach().cpu().numpy()
-                        change_max_prob = torch.max(change_probs, dim=0)[0].detach().cpu().numpy()
-                        
-                        # For change, visualize as 2-class (class-1 prob heatmap + argmax)
-                        change_prob = change_probs[1].detach().cpu().numpy()
-                        # Ensure GT change logged equals the normalized target used in loss
-                        gt_change_for_log = normalize_change_target(seg_t1, seg_t2, change)
-                        wandb.log({
-                            "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
-                            "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
-                            "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
-                            "train/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Pred Seg T1 Max Probability")],
-                            "train/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Pred Seg T2 Max Probability")],
-                            "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
-                            "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
-                            "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                            "train/gt_change": [wandb.Image(create_color_mask(gt_change_for_log[0], num_classes=2), caption="GT Change (binary color)")],
-                            "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
-                            "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
-                            "global_step": current_epoch * len(train_loader) + current_step
-                        })
-
-                        for c in range(opt['model']['n_classes']):
-                            wandb.log({f"train/seg_t2_prob_c{c}": [wandb.Image(seg_t2_probs[c].detach().cpu().numpy())]}, commit=False)
-
-
-                elif opt['model']['loss'] == 'extended_triplet':
+                if opt['model']['loss'] == 'extended_triplet':
                     # Extended multi-task loss branch
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # TripletChangeSegLoss expects a single-channel change logit
@@ -731,21 +417,38 @@ if __name__ == '__main__':
                             img = (img + 1.0) / 2.0
                         img = (img * 255.0).clamp(0, 255).byte()
                         return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                    # Also log probability maps for debugging
+                    seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)
+                    seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
+                    change_probs = torch.softmax(change_pred[0], dim=0)
                     
+                    # Create probability visualizations (show max probability across classes)
+                    seg_t1_max_prob = torch.max(seg_t1_probs, dim=0)[0].detach().cpu().numpy()
+                    seg_t2_max_prob = torch.max(seg_t2_probs, dim=0)[0].detach().cpu().numpy()
+                    change_max_prob = torch.max(change_probs, dim=0)[0].detach().cpu().numpy()
+                    
+                    # For change, visualize as 2-class (class-1 prob heatmap + argmax)
+                    change_prob = change_probs[1].detach().cpu().numpy()
+                    # Ensure GT change logged equals the normalized target used in loss
+                    gt_change_for_log = normalize_change_target(seg_t1, seg_t2, change)
+
                     wandb.log({
-                        # Input images
-                        "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
-                        "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
-                        # Predictions
-                        "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=num_classes), caption="Pred Seg T1 (multi-class)")],
-                        "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=num_classes), caption="Pred Seg T2 (multi-class)")],
-                        "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
-                        # Ground truth
-                        "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
-                        "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                        "train/gt_change": [wandb.Image(train_gt_change_color, caption="GT Change (binary color)")],
-                        "global_step": current_epoch * len(train_loader) + current_step
-                    })
+                            "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
+                            "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
+                            "train/pred_change": [wandb.Image(create_color_mask(pred_change[0], num_classes=2), caption="Pred Change (binary)")],
+                            "train/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Pred Seg T1 Max Probability")],
+                            "train/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Pred Seg T2 Max Probability")],
+                            "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
+                            "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
+                            "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
+                            "train/gt_change": [wandb.Image(create_color_mask(gt_change_for_log[0], num_classes=2), caption="GT Change (binary color)")],
+                            "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
+                            "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
+                            "global_step": current_epoch * len(train_loader) + current_step
+                        })
+
+                    for c in range(opt['model']['n_classes']):
+                        wandb.log({f"train/seg_t2_prob_c{c}": [wandb.Image(seg_t2_probs[c].detach().cpu().numpy())]}, commit=False)
                 
                 # Save change prediction for metrics before cleanup
                 change_pred = outputs[2].detach()  # [B, 2, H, W]
@@ -754,12 +457,6 @@ if __name__ == '__main__':
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
                     logger.warning(f"NaN/Inf loss detected at epoch {current_epoch}, step {current_step}. Skipping this batch.")
-                    # logger.warning(f"Model parameter stats:")
-                    # for name, param in cd_model.named_parameters():
-                    #     if param.grad is not None:
-                    #         logger.warning(f"  {name}: grad_norm={param.grad.norm():.6f}")
-                    #     if torch.isnan(param).any():
-                    #         logger.warning(f"  {name}: contains NaN parameters!")
                     optimer.zero_grad()
                     continue
                 
@@ -777,14 +474,11 @@ if __name__ == '__main__':
                     
                     optimer.step()
                     optimer.zero_grad()
-                    # Clear gradients from memory
-                    # torch.cuda.empty_cache()
                     
                 # Clean up memory after each batch (avoid double deletion)
                 del seg_t1, seg_t2, change, outputs
                 if 'pred_seg_t1' in locals():
                     del pred_seg_t1, pred_seg_t2, pred_change
-                # torch.cuda.empty_cache()
                 
                 log_dict['loss'] = train_loss.item()
                 log_dict['loss_seg_t1'] = loss_dict['seg_t1']
@@ -802,8 +496,6 @@ if __name__ == '__main__':
                 # Ground truth already binary (saved above)
                 gt_np = change_gt.cpu().numpy().astype(np.uint8)
                 pred_np = binary_pred.cpu().numpy()
-
-
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
@@ -843,14 +535,17 @@ if __name__ == '__main__':
                 'train_epoch_loss': avg_epoch_loss,
                 'epoch': current_epoch
             })
-            
-            ### VALIDATION LOOP ###
+
+
+            #################
+            #   VALIDATION  #
+            #################
+
             logger.info('Starting validation...')
             val_metric = ConfuseMatrixMeter(n_class=2)
             cd_model.eval()
             val_loss_total = 0.0
             val_steps = 0
-            shape_mismatch_logged = False  # Flag to log shape mismatch only once per epoch
             
             with torch.no_grad():
                 _max_val = getattr(args, 'max_val_batches', 0) or 0
@@ -1065,9 +760,6 @@ if __name__ == '__main__':
                         else:
                             val_gt_seg_t2_img = create_color_mask(val_seg_t2[0], num_classes=opt['model']['n_classes'])
                         
-                        # Create binary ground truth change visualization
-                        # Note: val_change_vis is already prepared earlier for metrics
-                        
                         # Create color visualization with enhanced contrast for binary mask
                         # First, debug what we have
                         print(f"\nval_change_vis[0] unique values BEFORE: {torch.unique(val_change_vis[0])}")
@@ -1156,7 +848,10 @@ if __name__ == '__main__':
             # Create test result directory
             test_result_path = '{}/test'.format(opt['path_cd']['result'])
             os.makedirs(test_result_path, exist_ok=True)
-            
+
+            #################
+            #    TESTING    #
+            #################
             with torch.no_grad():
                 # Apply optional cap on test batches
                 _max_test = getattr(args, 'max_test_batches', 0) or 0
@@ -1165,23 +860,6 @@ if __name__ == '__main__':
                 for current_step, test_data in enumerate(tqdm(_test_iter, total=_test_total, desc="Test")):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
-                    if current_step == 0:
-                        # IDs if available from dataset
-                        ids_A = test_data.get('A_path') or test_data.get('A_id')
-                        ids_B = test_data.get('B_path') or test_data.get('B_id')
-                        ids_L1 = test_data.get('L1_path') or test_data.get('L1_id')
-                        ids_L2 = test_data.get('L2_path') or test_data.get('L2_id')
-                        ids_Ch = test_data.get('change_path') or test_data.get('change_id')
-                        if ids_A is not None:
-                            logger.info(f"[TEST ids] A[0]: {ids_A[0] if isinstance(ids_A, (list, tuple)) else ids_A}")
-                        if ids_B is not None:
-                            logger.info(f"[TEST ids] B[0]: {ids_B[0] if isinstance(ids_B, (list, tuple)) else ids_B}")
-                        if ids_L1 is not None:
-                            logger.info(f"[TEST ids] L1[0]: {ids_L1[0] if isinstance(ids_L1, (list, tuple)) else ids_L1}")
-                        if ids_L2 is not None:
-                            logger.info(f"[TEST ids] L2[0]: {ids_L2[0] if isinstance(ids_L2, (list, tuple)) else ids_L2}")
-                        if ids_Ch is not None:
-                            logger.info(f"[TEST ids] change[0]: {ids_Ch[0] if isinstance(ids_Ch, (list, tuple)) else ids_Ch}")
 
                     # Robust label extraction - data automatically on correct device
                     if 'L1' in test_data and 'L2' in test_data:
@@ -1240,15 +918,6 @@ if __name__ == '__main__':
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
                         pred_seg_t1_ali = pred_seg_t1.detach().cpu().numpy()
                         pred_seg_t2_ali = pred_seg_t2.detach().cpu().numpy()
-
-
-                        print("pred_seg_t1.shape", pred_seg_t1.shape)
-                        print("pred_seg_t2.shape", pred_seg_t2.shape)
-
-                        print("pred_seg_t1.min()", pred_seg_t1.min())
-                        print("pred_seg_t1.max()", pred_seg_t1.max())
-                        print("pred_seg_t2.min()", pred_seg_t2.min())
-                        print("pred_seg_t2.max()", pred_seg_t2.max())
                         
 
                         seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)  # [C,H,W]

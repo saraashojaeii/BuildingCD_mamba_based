@@ -1,5 +1,5 @@
 {
-  "name": "SECOND-train-CDMamba",
+  "name": "SECOND-CDMamba",
   "phase": "train",
   "gpu_ids":[0],
 
