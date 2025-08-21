@@ -398,6 +398,23 @@ if __name__ == '__main__':
                 # Move data to GPU manually
                 train_im1 = train_data['A'].to(device)
                 train_im2 = train_data['B'].to(device)
+                # Optional: record sample identifiers if provided by dataset
+                if current_step == 0:
+                    ids_A = train_data.get('A_path') or train_data.get('A_id')
+                    ids_B = train_data.get('B_path') or train_data.get('B_id')
+                    ids_L1 = train_data.get('L1_path') or train_data.get('L1_id')
+                    ids_L2 = train_data.get('L2_path') or train_data.get('L2_id')
+                    ids_Ch = train_data.get('change_path') or train_data.get('change_id')
+                    if ids_A is not None:
+                        logger.info(f"[TRAIN ids] A[0]: {ids_A[0] if isinstance(ids_A, (list, tuple)) else ids_A}")
+                    if ids_B is not None:
+                        logger.info(f"[TRAIN ids] B[0]: {ids_B[0] if isinstance(ids_B, (list, tuple)) else ids_B}")
+                    if ids_L1 is not None:
+                        logger.info(f"[TRAIN ids] L1[0]: {ids_L1[0] if isinstance(ids_L1, (list, tuple)) else ids_L1}")
+                    if ids_L2 is not None:
+                        logger.info(f"[TRAIN ids] L2[0]: {ids_L2[0] if isinstance(ids_L2, (list, tuple)) else ids_L2}")
+                    if ids_Ch is not None:
+                        logger.info(f"[TRAIN ids] change[0]: {ids_Ch[0] if isinstance(ids_Ch, (list, tuple)) else ids_Ch}")
                 # Robust label extraction and move to device
                 seg_t1 = (train_data['L1'] if 'L1' in train_data else train_data['L']).to(device)
                 seg_t2 = (train_data['L2'] if 'L2' in train_data else train_data['L']).to(device)
@@ -411,6 +428,15 @@ if __name__ == '__main__':
                 # Use gradient checkpointing to save memory
                 # Temporarily disable mixed precision to debug NaN
                 outputs = cd_model(train_im1, train_im2)
+                if current_step == 0:
+                    import hashlib
+                    def _fp(t: torch.Tensor):
+                        t_cpu = t.detach().to('cpu')
+                        return hashlib.sha1(t_cpu.numpy().tobytes()).hexdigest()[:12]
+                    try:
+                        logger.info(f"[TRAIN fp] A[0]={_fp(train_data['A'][0])}, B[0]={_fp(train_data['B'][0])}")
+                    except Exception:
+                        pass
                 
                 # Debug: Compare outputs vs ground-truth dtypes/shapes/devices (first batch only)
                 if current_step == 0:
@@ -450,6 +476,14 @@ if __name__ == '__main__':
                     #         logger.warning(f"{name} stats: min={tensor.min()}, max={tensor.max()}, shape={tensor.shape}")
                     
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change}
+                    if current_step == 0:
+                        # Verify change consistency if provided
+                        try:
+                            _derived = normalize_change_target(seg_t1, seg_t2, None)
+                            mism = (_derived != (change > 0).long()).float().mean().item()
+                            logger.info(f"[TRAIN consistency] derived_vs_provided_change_mismatch={mism:.6f}")
+                        except Exception as e:
+                            logger.warning(f"[TRAIN consistency] could not compare change masks: {e}")
                     # Temporarily disable mixed precision to debug NaN
                     train_loss, loss_dict = loss_fun(outputs, labels)
                     
@@ -544,6 +578,12 @@ if __name__ == '__main__':
                     if current_step == 0:
                         # Show post-normalization change target dtype
                         logger.info(f"[TRAIN dtype-check] change_bin: shape={tuple(change_bin.shape)}, dtype={change_bin.dtype}, device={change_bin.device}")
+                        try:
+                            _derived = normalize_change_target(seg_t1, seg_t2, None)
+                            mism = (_derived != change_bin).float().mean().item()
+                            logger.info(f"[TRAIN consistency] derived_vs_change_bin_mismatch={mism:.6f}")
+                        except Exception as e:
+                            logger.warning(f"[TRAIN consistency] could not compare derived vs change_bin: {e}")
                     train_loss, ext_loss_dict = loss_fun(preds, labels)
                     train_loss = train_loss / accumulation_steps
                     # for compatibility with downstream logging keys
@@ -571,6 +611,12 @@ if __name__ == '__main__':
                     change_bin = normalize_change_target(seg_t1, seg_t2, change)
                     if current_step == 0:
                         logger.info(f"[TRAIN dtype-check] change_bin: shape={tuple(change_bin.shape)}, dtype={change_bin.dtype}, device={change_bin.device}")
+                        try:
+                            _derived = normalize_change_target(seg_t1, seg_t2, None)
+                            mism = (_derived != change_bin).float().mean().item()
+                            logger.info(f"[TRAIN consistency] derived_vs_change_bin_mismatch={mism:.6f}")
+                        except Exception as e:
+                            logger.warning(f"[TRAIN consistency] could not compare derived vs change_bin: {e}")
                     # Compute loss against binary targets (use 2-class criterion)
                     train_loss = loss_fun_change(change_pred, change_bin)
                     # Scale loss for gradient accumulation
@@ -1103,6 +1149,23 @@ if __name__ == '__main__':
                 for current_step, test_data in enumerate(tqdm(_test_iter, total=_test_total, desc="Test")):
                     test_img1 = test_data['A'].to(device)
                     test_img2 = test_data['B'].to(device)
+                    if current_step == 0:
+                        # IDs if available from dataset
+                        ids_A = test_data.get('A_path') or test_data.get('A_id')
+                        ids_B = test_data.get('B_path') or test_data.get('B_id')
+                        ids_L1 = test_data.get('L1_path') or test_data.get('L1_id')
+                        ids_L2 = test_data.get('L2_path') or test_data.get('L2_id')
+                        ids_Ch = test_data.get('change_path') or test_data.get('change_id')
+                        if ids_A is not None:
+                            logger.info(f"[TEST ids] A[0]: {ids_A[0] if isinstance(ids_A, (list, tuple)) else ids_A}")
+                        if ids_B is not None:
+                            logger.info(f"[TEST ids] B[0]: {ids_B[0] if isinstance(ids_B, (list, tuple)) else ids_B}")
+                        if ids_L1 is not None:
+                            logger.info(f"[TEST ids] L1[0]: {ids_L1[0] if isinstance(ids_L1, (list, tuple)) else ids_L1}")
+                        if ids_L2 is not None:
+                            logger.info(f"[TEST ids] L2[0]: {ids_L2[0] if isinstance(ids_L2, (list, tuple)) else ids_L2}")
+                        if ids_Ch is not None:
+                            logger.info(f"[TEST ids] change[0]: {ids_Ch[0] if isinstance(ids_Ch, (list, tuple)) else ids_Ch}")
                     # Robust label extraction - data automatically on correct device
                     if 'L1' in test_data and 'L2' in test_data:
                         seg_t1 = test_data['L1']
@@ -1115,6 +1178,15 @@ if __name__ == '__main__':
                     change = test_data['change'] if 'change' in test_data else None
 
                     outputs = cd_model(test_img1, test_img2)
+                    if current_step == 0:
+                        import hashlib
+                        def _fp(t: torch.Tensor):
+                            t_cpu = t.detach().to('cpu')
+                            return hashlib.sha1(t_cpu.numpy().tobytes()).hexdigest()[:12]
+                        try:
+                            logger.info(f"[TEST fp] A[0]={_fp(test_data['A'][0])}, B[0]={_fp(test_data['B'][0])}")
+                        except Exception:
+                            pass
                     # Extract all heads
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # Only use change head for metric and visuals (2-class)
@@ -1122,6 +1194,17 @@ if __name__ == '__main__':
                     G_pred = torch.argmax(change_pred.detach(), dim=1)
                     # Normalize GT to binary [B,H,W]
                     test_change_bin = normalize_change_target(seg_t1, seg_t2, change)
+                    if current_step == 0:
+                        # Consistency checks between derived and provided/normalized masks
+                        try:
+                            _derived = normalize_change_target(seg_t1, seg_t2, None)
+                            if change is not None:
+                                mism_prov = (_derived != (change > 0).long()).float().mean().item()
+                                logger.info(f"[TEST consistency] derived_vs_provided_change_mismatch={mism_prov:.6f}")
+                            mism_norm = (_derived != test_change_bin).float().mean().item()
+                            logger.info(f"[TEST consistency] derived_vs_change_bin_mismatch={mism_norm:.6f}")
+                        except Exception as e:
+                            logger.warning(f"[TEST consistency] could not compare change masks: {e}")
 
                     # Prepare numpy arrays for metrics
                     pred_np = G_pred.int().cpu().numpy()
