@@ -271,6 +271,30 @@ if __name__ == '__main__':
                 # Clear input tensors from memory immediately after forward pass
                 del train_im1, train_im2
 
+                # Fetch ground truth labels from batch and move to device
+                seg_t1 = train_data.get('L1', None)
+                seg_t2 = train_data.get('L2', None)
+                change = train_data.get('L', None)
+                if (seg_t1 is None) or (seg_t2 is None):
+                    # Fallback for datasets without L1/L2: reuse 'L' for both or zeros if absent
+                    if change is not None:
+                        seg_t1 = change
+                        seg_t2 = change
+                    else:
+                        # Create dummy zero labels matching change_pred spatial size
+                        if isinstance(outputs, (tuple, list)) and len(outputs) >= 3:
+                            b, _, h, w = outputs[2].shape
+                        else:
+                            b, _, h, w = outputs.shape
+                        seg_t1 = torch.zeros((b, h, w), dtype=torch.long)
+                        seg_t2 = torch.zeros((b, h, w), dtype=torch.long)
+                # Ensure dtype/device
+                if isinstance(seg_t1, torch.Tensor):
+                    seg_t1 = seg_t1.to(device).long()
+                if isinstance(seg_t2, torch.Tensor):
+                    seg_t2 = seg_t2.to(device).long()
+                if isinstance(change, torch.Tensor):
+                    change = change.to(device).long()
 
                 if opt['model']['loss'] == 'extended_triplet':
                     # Extended multi-task loss branch
@@ -452,8 +476,8 @@ if __name__ == '__main__':
                         wandb.log({f"train/seg_t2_prob_c{c}": [wandb.Image(seg_t2_probs[c].detach().cpu().numpy())]}, commit=False)
                 
                 # Save change prediction for metrics before cleanup
-                change_pred = outputs[2].detach()  # [B, 2, H, W]
-                change_gt = (change > 0).long().detach()  # Binary ground truth
+                change_pred_for_metric = change_pred.detach()  # [B, 2, H, W]
+                change_gt = (change_bin > 0).long().detach()  # Binary ground truth
                 
                 # Check for NaN loss before backward pass
                 if torch.isnan(train_loss) or torch.isinf(train_loss):
@@ -488,7 +512,7 @@ if __name__ == '__main__':
                 epoch_loss += train_loss.item()
 
                 # For metric, threshold class-1 probability over 2-class change head
-                change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
+                change_p1 = torch.softmax(change_pred_for_metric, dim=1)[:, 1, :, :]
                 G_pred = (change_p1 > args.change_threshold).long()
                 print("################################################")
                 print(f"G_pred unique values: {torch.unique(G_pred[0])}")
@@ -516,7 +540,7 @@ if __name__ == '__main__':
                     logger.info(message)
                 
                 # Final cleanup of saved tensors
-                del change_pred, change_gt, G_pred, binary_pred
+                del change_pred_for_metric, change_gt, G_pred, binary_pred
                 # torch.cuda.empty_cache()
 
             ### Epoch Summary ###
