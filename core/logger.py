@@ -109,7 +109,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', type=str, default='../config/levir.json')
     parser.add_argument('-p', '--phase', type=str, choices=['train', 'test'], default='train')
-    parser.add_argument('-gpu', '--gpu_ids', type=str, default=None)
 
     args = parser.parse_args()
     opt = parse(args)
