@@ -1128,9 +1128,6 @@ if __name__ == '__main__':
             
             logger.info(f'Validation - Epoch: {current_epoch}, Loss: {avg_val_loss:.5f}, mF1: {val_epoch_acc:.5f}')
             
-            # Reset model to training mode
-            cd_model.train()
-            
             # Load the best model for testing
             gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
             if os.path.exists(gen_path):
@@ -1319,22 +1316,6 @@ if __name__ == '__main__':
                         Metrics.save_img(
                             gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
 
-                        # Log input images to wandb for test/validation
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clip(0, 255).astype(np.uint8)
-                            if img.ndim == 3:
-                                return img.transpose(1,2,0)
-                            return img
-                        if 'A' in test_data and 'B' in test_data:
-                            img_A_np = test_data['A'][0].detach().cpu().numpy()
-                            img_B_np = test_data['B'][0].detach().cpu().numpy()
-                            wandb.log({
-                                "test/input_T1": [wandb.Image(norm_img(img_A_np), caption="Test Input T1")],
-                                "test/input_T2": [wandb.Image(norm_img(img_B_np), caption="Test Input T2")],
-                            }, commit=False)
 
                     else:
                         # grid img
@@ -1348,15 +1329,6 @@ if __name__ == '__main__':
                         grid_img = Metrics.tensor2img(grid_img)  # uint8
                         Metrics.save_img(
                             grid_img, '{}/img_A_B_pred_gt_{}.png'.format(test_result_path, current_step))
-
-                        # Log input images to wandb for test/validation (grid case)
-                        if 'A' in test_data and 'B' in test_data:
-                            img_A_np = test_data['A'][0].detach().cpu().numpy()
-                            img_B_np = test_data['B'][0].detach().cpu().numpy()
-                            wandb.log({
-                                "test/input_T1": [wandb.Image(norm_img(img_A_np), caption="Test Input T1")],
-                                "test/input_T2": [wandb.Image(norm_img(img_B_np), caption="Test Input T2")],
-                            }, commit=False)
 
 
                 ### log epoch status ###
@@ -1374,4 +1346,3 @@ if __name__ == '__main__':
                 logger.info(message)
                 logger.info('End of testing...')
 
-            # Note: Validation logging is now handled in the validation loop above
