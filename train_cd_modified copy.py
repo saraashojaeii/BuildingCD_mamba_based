@@ -498,17 +498,6 @@ if __name__ == '__main__':
                         # Thresholded binarization for change using class-1 probability
                         change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
                         pred_change = (change_p1 > args.change_threshold).long()
-
-                        # After computing pred_seg_t2
-                        vals1, cnts1 = torch.unique(pred_seg_t1, return_counts=True)
-                        print("TRAIN pred_seg_t1 class counts:", dict(zip(vals1.tolist(), cnts1.tolist())))
-                        # After computing pred_seg_t2
-                        vals2, cnts2 = torch.unique(pred_seg_t2, return_counts=True)
-                        print("TRAIN pred_seg_t2 class counts:", dict(zip(vals2.tolist(), cnts2.tolist())))
-                        # After computing pred_seg_t2
-                        vals3, cnts3 = torch.unique(pred_change, return_counts=True)
-                        print("TRAIN pred_change class counts:", dict(zip(vals3.tolist(), cnts3.tolist())))
-
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
@@ -580,9 +569,6 @@ if __name__ == '__main__':
                             "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
                             "global_step": current_epoch * len(train_loader) + current_step
                         })
-
-                        for c in range(opt['model']['n_classes']):
-                            wandb.log({f"train/seg_t2_prob_c{c}": [wandb.Image(seg_t2_probs[c].detach().cpu().numpy())]}, commit=False)
 
 
                 elif opt['model']['loss'] == 'extended_triplet':
@@ -1145,7 +1131,7 @@ if __name__ == '__main__':
             # Load the best model for testing
             gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
             if os.path.exists(gen_path):
-                cd_model.load_state_dict(torch.load(gen_path, map_location=device), strict=True)
+                cd_model.load_state_dict(torch.load(gen_path), strict=True)
                 logger.info(f'Loaded best model from {gen_path}')
             else:
                 logger.warning(f'Best model not found at {gen_path}, using current model')
@@ -1182,7 +1168,6 @@ if __name__ == '__main__':
                             logger.info(f"[TEST ids] L2[0]: {ids_L2[0] if isinstance(ids_L2, (list, tuple)) else ids_L2}")
                         if ids_Ch is not None:
                             logger.info(f"[TEST ids] change[0]: {ids_Ch[0] if isinstance(ids_Ch, (list, tuple)) else ids_Ch}")
-
                     # Robust label extraction - data automatically on correct device
                     if 'L1' in test_data and 'L2' in test_data:
                         seg_t1 = test_data['L1']
@@ -1212,11 +1197,21 @@ if __name__ == '__main__':
                     G_pred = (change_p1 > args.change_threshold).long()
                     # Normalize GT to binary [B,H,W]
                     test_change_bin = normalize_change_target(seg_t1, seg_t2, change)
+                    if current_step == 0:
+                        # Consistency checks between derived and provided/normalized masks
+                        try:
+                            _derived = normalize_change_target(seg_t1, seg_t2, None)
+                            if change is not None:
+                                mism_prov = (_derived != (change > 0).long()).float().mean().item()
+                                logger.info(f"[TEST consistency] derived_vs_provided_change_mismatch={mism_prov:.6f}")
+                            mism_norm = (_derived != test_change_bin).float().mean().item()
+                            logger.info(f"[TEST consistency] derived_vs_change_bin_mismatch={mism_norm:.6f}")
+                        except Exception as e:
+                            logger.warning(f"[TEST consistency] could not compare change masks: {e}")
 
-                    # Prepare numpy arrays for metrics and update confusion matrix
+                    # Prepare numpy arrays for metrics
                     pred_np = G_pred.int().cpu().numpy()
                     gt_np = test_change_bin.cpu().numpy().astype(np.uint8)
-                    metric.update_cm(pr=pred_np, gt=gt_np)
 
                     # Optional: log first batch of test predictions (segmentations + probs)
                     if current_step == 0:
@@ -1230,6 +1225,8 @@ if __name__ == '__main__':
                                 img = (img + 1.0) / 2.0
                             img = (img * 255.0).clamp(0, 255).byte()
                             return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
+                        
+
 
                         # Change probabilities (class-1 probability)
                         change_probs = torch.softmax(change_pred[0], dim=0)
@@ -1242,7 +1239,7 @@ if __name__ == '__main__':
                         seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
                         seg_t1_max_prob = torch.max(seg_t1_probs, dim=0).values.detach().cpu().numpy()  # [H,W]
                         seg_t2_max_prob = torch.max(seg_t2_probs, dim=0).values.detach().cpu().numpy()
-                        
+                        test_gt_change_bw = ((test_change_bin[0] > 0).float().cpu().numpy() * 255).astype(np.uint8)
                         wandb.log({
                             # Input images
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
@@ -1257,46 +1254,82 @@ if __name__ == '__main__':
                             "test/pred_change_prob": [wandb.Image(change_prob, caption="Test Pred Change Class-1 Probability")],
                             "test/gt_change": [wandb.Image(create_color_mask(test_change_bin[0], num_classes=2), caption="Test GT Change (binary color)")],
                         })
-
-                    # Visuals for saving PNGs
                     binary_pred = G_pred.int()
-                    visuals = OrderedDict()
-                    visuals['pred_cm'] = binary_pred  # Use binary prediction for visualization
-                    visuals['gt_cm'] = test_change_bin.int()  # Use normalized binary GT for visualization
-
-                    # Convert to uint8 images and save
-                    img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))
-                    img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))
-
-                    # Handle tensor dimensions properly for visualization
-                    gt_tensor = visuals['gt_cm']
-                    pred_tensor = visuals['pred_cm']
                     
-                    # Ensure tensors are in correct format (B, H, W) before adding channel dimension
-                    if gt_tensor.dim() > 3:
-                        gt_tensor = gt_tensor.squeeze()  # Remove extra dimensions
-                    if pred_tensor.dim() > 3:
-                        pred_tensor = pred_tensor.squeeze()  # Remove extra dimensions
-                        
-                    # Add channel dimension and repeat for RGB
-                    if gt_tensor.dim() == 3:  # (B, H, W)
-                        gt_tensor = gt_tensor.unsqueeze(1)  # (B, 1, H, W)
-                    elif gt_tensor.dim() == 2:  # (H, W)
-                        gt_tensor = gt_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-                        
-                    if pred_tensor.dim() == 3:  # (B, H, W)
-                        pred_tensor = pred_tensor.unsqueeze(1)  # (B, 1, H, W)
-                    elif pred_tensor.dim() == 2:  # (H, W)
-                        pred_tensor = pred_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                    # Get ground truth
+                    if 'change' in test_data:
+                        gt = (test_data['change'] > 0).long().to(device)
+                    elif change is not None:
+                        gt = change.to(device)
+                    else:
+                        gt = (seg_t1 != seg_t2).long().to(device)
                     
-                    gt_cm = Metrics.tensor2img(gt_tensor.repeat(1, 3, 1, 1), out_type=np.uint8, min_max=(0, 1))
-                    pred_cm = Metrics.tensor2img(pred_tensor.repeat(1, 3, 1, 1), out_type=np.uint8, min_max=(0, 1))
+                    # Create binary ground truth for visualization
+                    gt_binary = (gt > 0).int()  # Convert to binary (0 or 1)
 
-                    # Save imgs
-                    Metrics.save_img(img_A, '{}/img_A_{}.png'.format(test_result_path, current_step))
-                    Metrics.save_img(img_B, '{}/img_B_{}.png'.format(test_result_path, current_step))
-                    Metrics.save_img(pred_cm, '{}/img_pred_cm{}.png'.format(test_result_path, current_step))
-                    Metrics.save_img(gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
+                    # Visuals
+                    out_dict = OrderedDict()
+                    out_dict['pred_cm'] = binary_pred  # Use binary prediction for visualization
+                    out_dict['gt_cm'] = gt_binary  # Use binary ground truth for visualization
+                    visuals = out_dict
+
+                    img_mode = 'single'
+                    if img_mode == 'single':
+                        # Converting to uint8
+                        visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
+                        visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
+                        img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+                        img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))  # uint8
+                        # Handle tensor dimensions properly for visualization
+                        gt_tensor = visuals['gt_cm']
+                        pred_tensor = visuals['pred_cm']
+                        
+                        # Ensure tensors are in correct format (B, H, W) before adding channel dimension
+                        if gt_tensor.dim() > 3:
+                            gt_tensor = gt_tensor.squeeze()  # Remove extra dimensions
+                        if pred_tensor.dim() > 3:
+                            pred_tensor = pred_tensor.squeeze()  # Remove extra dimensions
+                            
+                        # Add channel dimension and repeat for RGB
+                        if gt_tensor.dim() == 3:  # (B, H, W)
+                            gt_tensor = gt_tensor.unsqueeze(1)  # (B, 1, H, W)
+                        elif gt_tensor.dim() == 2:  # (H, W)
+                            gt_tensor = gt_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                            
+                        if pred_tensor.dim() == 3:  # (B, H, W)
+                            pred_tensor = pred_tensor.unsqueeze(1)  # (B, 1, H, W)
+                        elif pred_tensor.dim() == 2:  # (H, W)
+                            pred_tensor = pred_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                        
+                        gt_cm = Metrics.tensor2img(gt_tensor.repeat(1, 3, 1, 1), out_type=np.uint8,
+                                                   min_max=(0, 1))  # uint8
+                        pred_cm = Metrics.tensor2img(pred_tensor.repeat(1, 3, 1, 1),
+                                                     out_type=np.uint8, min_max=(0, 1))  # uint8
+
+                        # Save imgs
+                        Metrics.save_img(
+                            img_A, '{}/img_A_{}.png'.format(test_result_path, current_step))
+                        Metrics.save_img(
+                            img_B, '{}/img_B_{}.png'.format(test_result_path, current_step))
+                        Metrics.save_img(
+                            pred_cm, '{}/img_pred_cm{}.png'.format(test_result_path, current_step))
+                        Metrics.save_img(
+                            gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
+
+
+                    else:
+                        # grid img
+                        visuals['pred_cm'] = visuals['pred_cm'] * 2.0 - 1.0
+                        visuals['gt_cm'] = visuals['gt_cm'] * 2.0 - 1.0
+                        grid_img = torch.cat((test_data['A'],
+                                              test_data['B'],
+                                              visuals['pred_cm'].unsqueeze(1).repeat(1, 3, 1, 1),
+                                              visuals['gt_cm'].unsqueeze(1).repeat(1, 3, 1, 1)),
+                                             dim=0)
+                        grid_img = Metrics.tensor2img(grid_img)  # uint8
+                        Metrics.save_img(
+                            grid_img, '{}/img_A_B_pred_gt_{}.png'.format(test_result_path, current_step))
+
 
                 ### log epoch status ###
                 scores = metric.get_scores()
@@ -1312,3 +1345,4 @@ if __name__ == '__main__':
                     message += '\n'
                 logger.info(message)
                 logger.info('End of testing...')
+
