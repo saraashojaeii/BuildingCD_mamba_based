@@ -1108,15 +1108,6 @@ if __name__ == '__main__':
                             "val/gt_change": [wandb.Image(val_gt_change_color, caption="Val GT Change (binary color)")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader)
                         })
-                    
-                    # Clean up validation tensors
-                    del val_outputs, val_change_pred, val_G_pred, val_binary_pred
-                    # torch.cuda.empty_cache()
-            
-            # Log validation epoch summary
-            val_scores = val_metric.get_scores()
-            val_epoch_acc = val_scores['mf1']
-            avg_val_loss = val_loss_total / val_steps if val_steps > 0 else 0.0
             
             wandb.log({
                 'val/epoch_loss': avg_val_loss,
