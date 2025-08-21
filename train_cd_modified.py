@@ -495,7 +495,9 @@ if __name__ == '__main__':
                     with torch.no_grad():
                         pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)
                         pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)
-                        pred_change = torch.argmax(change_pred, dim=1)
+                        # Thresholded binarization for change using class-1 probability
+                        change_p1 = torch.softmax(change_pred, dim=1)[:, 1, :, :]
+                        pred_change = (change_p1 > args.change_threshold).long()
                     
                     # Log input images to wandb (first batch of each epoch)
                     train_img1_np = train_data['A'][0].detach().cpu()
@@ -551,6 +553,8 @@ if __name__ == '__main__':
                         
                         # For change, visualize as 2-class (class-1 prob heatmap + argmax)
                         change_prob = change_probs[1].detach().cpu().numpy()
+                        # Ensure GT change logged equals the normalized target used in loss
+                        gt_change_for_log = normalize_change_target(seg_t1, seg_t2, change)
                         wandb.log({
                             "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T1 (multi-class)")],
                             "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Pred Seg T2 (multi-class)")],
@@ -560,7 +564,7 @@ if __name__ == '__main__':
                             "train/pred_change_prob": [wandb.Image(change_prob, caption="Pred Change Class-1 Probability")],
                             "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img, caption="GT Seg T1")],
                             "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img, caption="GT Seg T2")],
-                            "train/gt_change": [wandb.Image(create_color_mask(change[0], num_classes=2), caption="GT Change (binary color)")],
+                            "train/gt_change": [wandb.Image(create_color_mask(gt_change_for_log[0], num_classes=2), caption="GT Change (binary color)")],
                             "train/input_T1": [wandb.Image(norm_img(train_img1_np), caption="Train Input T1")],
                             "train/input_T2": [wandb.Image(norm_img(train_img2_np), caption="Train Input T2")],
                             "global_step": current_epoch * len(train_loader) + current_step
@@ -911,9 +915,9 @@ if __name__ == '__main__':
                     val_steps += 1
                     
                     # Update validation metrics
-                    # Use argmax over 2-class change head directly
-                    val_G_pred = torch.argmax(val_change_pred.detach(), dim=1)
-                    val_binary_pred = val_G_pred.int()
+                    # Threshold class-1 probability for binary decision
+                    val_change_p1 = torch.softmax(val_change_pred.detach(), dim=1)[:, 1, :, :]
+                    val_binary_pred = (val_change_p1 > args.change_threshold).int()
                     
                     # Prepare ground truth change mask for both metrics and visualization
                     # Get the binary ground truth change mask
@@ -1009,7 +1013,8 @@ if __name__ == '__main__':
                         with torch.no_grad():
                             val_pred_seg_t1 = torch.argmax(val_seg_logits_t1, dim=1)
                             val_pred_seg_t2 = torch.argmax(val_seg_logits_t2, dim=1)
-                            val_pred_change = torch.argmax(val_change_pred, dim=1)
+                            # Thresholded binary mask from class-1 probability
+                            val_pred_change = (torch.softmax(val_change_pred, dim=1)[:, 1, :, :] > args.change_threshold).long()
                         
                         # Debug: Check validation prediction values
                         print(f"\n=== VALIDATION PREDICTIONS DEBUG (Epoch {current_epoch}) ===")
@@ -1190,8 +1195,9 @@ if __name__ == '__main__':
                     # Extract all heads
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # Only use change head for metric and visuals (2-class)
-                    # Convert prediction to binary change mask directly
-                    G_pred = torch.argmax(change_pred.detach(), dim=1)
+                    # Convert prediction to binary change mask via thresholded probability
+                    change_p1 = torch.softmax(change_pred.detach(), dim=1)[:, 1, :, :]
+                    G_pred = (change_p1 > args.change_threshold).long()
                     # Normalize GT to binary [B,H,W]
                     test_change_bin = normalize_change_target(seg_t1, seg_t2, change)
                     if current_step == 0:
@@ -1222,10 +1228,7 @@ if __name__ == '__main__':
                                 img = (img + 1.0) / 2.0
                             img = (img * 255.0).clamp(0, 255).byte()
                             return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
-                            "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
-                        }, commit=False)
+                        
 
 
                         # Change probabilities (class-1 probability)
@@ -1241,6 +1244,9 @@ if __name__ == '__main__':
                         seg_t2_max_prob = torch.max(seg_t2_probs, dim=0).values.detach().cpu().numpy()
                         test_gt_change_bw = ((test_change_bin[0] > 0).float().cpu().numpy() * 255).astype(np.uint8)
                         wandb.log({
+                            # Input images
+                            "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
+                            "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                             # Multi-class segmentations (colorized)
                             "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
