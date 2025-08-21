@@ -20,7 +20,6 @@ def get_timestamp():
 def parse(args):
     phase = args.phase
     opt_path =args.config
-    gpu_ids = args.gpu_ids
 
     json_str = ''
     with open(opt_path, 'r') as f:
@@ -42,20 +41,6 @@ def parse(args):
 
     #chaneg dataset len
     opt['phase'] = phase
-
-    # export CUDA_VISIBLE_DEVICES
-    if gpu_ids is not None:
-        opt['gpu_ids'] = [int(id) for id in gpu_ids.split(',')]
-        gpu_list = gpu_ids
-    else:
-        gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
-    #print(gpu_list)
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
-    print('expert CUDA_VISIBLE_DEVICES=' + gpu_list)
-    if len(gpu_list) > 1:
-        opt['distributed'] = True
-    else:
-        opt['distributed'] = False
 
     return opt
 
