@@ -734,13 +734,42 @@ if __name__ == '__main__':
 
                     # 2) Change (binary): update with binary prediction vs binary GT
                     val_running_mf1_change = val_metric_change.update_cm(pr=val_pred_np, gt=val_gt_np)
-                    
+
+                    # Self-check: compare GT vs GT to verify perfect metrics (logged only on first val batch)
+                    selfcheck_logs = {}
+                    if val_step == 0:
+                        try:
+                            # Segmentation self-check (multi-class)
+                            _val_metric_seg_self = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
+                            _val_metric_seg_self.update_cm(pr=val_gt_seg_t1_np, gt=val_gt_seg_t1_np)
+                            _val_metric_seg_self.update_cm(pr=val_gt_seg_t2_np, gt=val_gt_seg_t2_np)
+                            _sc_seg = _val_metric_seg_self.get_scores()
+
+                            # Change self-check (binary)
+                            _val_metric_change_self = ConfuseMatrixMeter(n_class=2)
+                            _val_metric_change_self.update_cm(pr=val_gt_np, gt=val_gt_np)
+                            _sc_ch = _val_metric_change_self.get_scores()
+
+                            selfcheck_logs = {
+                                'val/selfcheck_mF1_seg': float(_sc_seg.get('mf1', 0.0)),
+                                'val/selfcheck_mIoU_seg': float(_sc_seg.get('miou', 0.0)),
+                                'val/selfcheck_OA_seg': float(_sc_seg.get('acc', 0.0)),
+                                'val/selfcheck_mF1_change': float(_sc_ch.get('mf1', 0.0)),
+                                'val/selfcheck_mIoU_change': float(_sc_ch.get('miou', 0.0)),
+                                'val/selfcheck_OA_change': float(_sc_ch.get('acc', 0.0)),
+                            }
+                        except Exception as e:
+                            logger.warning(f"Validation self-check metrics failed: {e}")
+
                     # Per-step validation logging
-                    wandb.log({
+                    _val_logs = {
                         'val_loss': float(val_loss.item()),
                         'val/running_mF1_seg': float(val_running_mf1_seg),
                         'val/running_mF1_change': float(val_running_mf1_change),
-                    })
+                    }
+                    if selfcheck_logs:
+                        _val_logs.update(selfcheck_logs)
+                    wandb.log(_val_logs)
             
                     # Log validation visualizations for first batch of each epoch
                     if val_step == 0 and current_epoch % 1 == 0:
