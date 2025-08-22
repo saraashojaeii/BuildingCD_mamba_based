@@ -17,7 +17,7 @@
   "datasets": {
     "train": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/mnt/source/SECOND/train",
+      "datasetroot": "/root/home/pvc/SECOND/train",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
@@ -26,7 +26,7 @@
     },
     "val": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/mnt/source/SECOND/val",
+      "datasetroot": "/root/home/pvc/SECOND/val",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
@@ -36,7 +36,7 @@
 
     "test": {
       "name": "SECOND-CD-256",
-      "datasetroot": "/mnt/source/SECOND/test",
+      "datasetroot": "/root/home/pvc/SECOND/test",
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
