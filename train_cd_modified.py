@@ -301,7 +301,7 @@ if __name__ == '__main__':
                     seg_logits_t1, seg_logits_t2, change_pred = outputs
                     # TripletChangeSegLoss expects a single-channel change logit
                     u = change_pred if change_pred.shape[1] == 1 else change_pred[:, 1:2]
-                    change_bin = normalize_change_target(train_data['L1'], train_data['L2'], change)
+                    change_bin = normalize_change_target(seg_t1, seg_t2, change)
                     preds = (seg_logits_t1, seg_logits_t2, u)
                     labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change_bin}
                     if current_step == 0:
@@ -567,10 +567,12 @@ if __name__ == '__main__':
             #################
 
             logger.info('Starting validation...')
-            val_metric = ConfuseMatrixMeter(n_class=2)
+            val_metric = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
+            val_metric_change = ConfuseMatrixMeter(n_class=2)
             cd_model.eval()
             val_loss_total = 0.0
             val_steps = 0
+            shape_mismatch_logged = False
             
             with torch.no_grad():
                 _max_val = getattr(args, 'max_val_batches', 0) or 0
@@ -652,6 +654,10 @@ if __name__ == '__main__':
                     val_loss_total += val_loss.item()
                     val_steps += 1
                     
+                    # Segmentation predictions for metrics (multi-class)
+                    val_pred_seg_t1 = torch.argmax(val_seg_logits_t1.detach(), dim=1)
+                    val_pred_seg_t2 = torch.argmax(val_seg_logits_t2.detach(), dim=1)
+
                     # Update validation metrics
                     # Threshold class-1 probability for binary decision
                     val_change_p1 = torch.softmax(val_change_pred.detach(), dim=1)[:, 1, :, :]
@@ -710,12 +716,31 @@ if __name__ == '__main__':
                                 min_size = min(val_gt_np.size, val_pred_np.size)
                                 val_gt_np = val_gt_np.flatten()[:min_size].reshape(-1)
                                 val_pred_np = val_pred_np.flatten()[:min_size].reshape(-1)
-                    
-                    # Update confusion matrix and get running mF1
-                    val_running_acc = val_metric.update_cm(pr=val_pred_np, gt=val_gt_np)
+                    # Update confusion matrices
+                    # 1) Segmentation (multi-class): update with T1 and T2 predictions vs GT
+                    val_pred_seg_t1_np = val_pred_seg_t1.cpu().numpy().astype(np.uint8)
+                    val_gt_seg_t1_np = val_seg_t1.detach().cpu().numpy().astype(np.uint8)
+                    val_running_mf1_seg_t1 = val_metric.update_cm(pr=val_pred_seg_t1_np, gt=val_gt_seg_t1_np)
+
+                    val_pred_seg_t2_np = val_pred_seg_t2.cpu().numpy().astype(np.uint8)
+                    val_gt_seg_t2_np = val_seg_t2.detach().cpu().numpy().astype(np.uint8)
+                    val_running_mf1_seg_t2 = val_metric.update_cm(pr=val_pred_seg_t2_np, gt=val_gt_seg_t2_np)
+
+                    # Average the two heads' step F1 for logging
+                    try:
+                        val_running_mf1_seg = float((val_running_mf1_seg_t1 + val_running_mf1_seg_t2) / 2.0)
+                    except Exception:
+                        val_running_mf1_seg = float(val_running_mf1_seg_t2)
+
+                    # 2) Change (binary): update with binary prediction vs binary GT
+                    val_running_mf1_change = val_metric_change.update_cm(pr=val_pred_np, gt=val_gt_np)
                     
                     # Per-step validation logging
-                    wandb.log({'val_loss': val_loss.item(), 'val_running_acc': val_running_acc.item()})
+                    wandb.log({
+                        'val_loss': float(val_loss.item()),
+                        'val/running_mF1_seg': float(val_running_mf1_seg),
+                        'val/running_mF1_change': float(val_running_mf1_change),
+                    })
             
                     # Log validation visualizations for first batch of each epoch
                     if val_step == 0 and current_epoch % 1 == 0:
@@ -728,31 +753,12 @@ if __name__ == '__main__':
                                 img = (img + 1.0) / 2.0
                             img = (img * 255.0).clamp(0, 255).byte()
                             return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        val_img1_np = val_data['A'][0].detach().cpu()
-                        val_img2_np = val_data['B'][0].detach().cpu()
                         wandb.log({
                             "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
                             "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
                         }, commit=False)
-
-
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
-                        wandb.log({
-                            "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
-                            "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
-                        }, commit=False)
-
-
-                        with torch.no_grad():
-                            val_pred_seg_t1 = torch.argmax(val_seg_logits_t1, dim=1)
-                            val_pred_seg_t2 = torch.argmax(val_seg_logits_t2, dim=1)
-                            # Thresholded binary mask from class-1 probability
-                            val_pred_change = (torch.softmax(val_change_pred, dim=1)[:, 1, :, :] > args.change_threshold).long()
+                        # Reuse already-computed predictions
+                        val_pred_change = val_binary_pred
                         
                         # Debug: Check validation prediction values
                         print(f"\n=== VALIDATION PREDICTIONS DEBUG (Epoch {current_epoch}) ===")
@@ -845,19 +851,39 @@ if __name__ == '__main__':
                         })
             
             # Validation epoch summary metrics
-            val_scores = val_metric.get_scores()
-            val_epoch_acc = val_scores['mf1']
+            val_scores_change = val_metric_change.get_scores()
+            val_epoch_mf1_change = val_scores_change['mf1']
+            val_epoch_miou_change = val_scores_change['miou']
+            val_epoch_acc_change = val_scores_change['acc']
             avg_val_loss = val_loss_total / val_steps if val_steps > 0 else 0.0
             
             wandb.log({
                 'val/epoch_loss': avg_val_loss,
-                'val/epoch_mF1': val_epoch_acc,
-                'val/epoch_mIoU': val_scores.get('mIoU', 0),
-                'val/epoch_OA': val_scores.get('OA', 0),
+                'val/epoch_mF1_change': val_epoch_mf1_change,
+                'val/epoch_mIoU_change': val_epoch_miou_change,
+                'val/epoch_OA_change': val_epoch_acc_change,
                 'epoch': current_epoch
             })
             
-            logger.info(f'Validation - Epoch: {current_epoch}, Loss: {avg_val_loss:.5f}, mF1: {val_epoch_acc:.5f}')
+            # Validation epoch summary metrics
+            val_scores = val_metric.get_scores()
+            val_epoch_mf1 = val_scores['mf1']
+            val_epoch_miou = val_scores['miou']
+            val_epoch_acc = val_scores['acc']
+            val_epoch_sek = val_scores['SCD_Sek']
+            val_epoch_fscd = val_scores['Fscd']
+            val_epoch_iou_mean = val_scores['SCD_IoU_mean']
+            
+            wandb.log({
+                'val/epoch_mF1': val_epoch_mf1,
+                'val/epoch_mIoU': val_epoch_miou,
+                'val/epoch_OA': val_epoch_acc,
+                'val/epoch_sek': val_epoch_sek,
+                'val/epoch_fscd': val_epoch_fscd,
+                'val/epoch_iou_mean': val_epoch_iou_mean
+            })
+            
+            logger.info(f'Validation - Epoch: {current_epoch}, Loss: {avg_val_loss:.5f}, mF1: {val_epoch_mf1:.5f}, mIoU: {val_epoch_miou:.5f}, OA: {val_epoch_acc:.5f}, Sek: {val_epoch_sek:.5f}, Fscd: {val_epoch_fscd:.5f}, IoU_mean: {val_epoch_iou_mean:.5f}')
             
             # Load the best model for testing
             gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
@@ -877,6 +903,9 @@ if __name__ == '__main__':
             #################
             #    TESTING    #
             #################
+            # Metrics for testing: change (binary) uses existing `metric`; add segmentation (multi-class)
+            test_metric_seg = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])
+            test_seg_updates = 0
             with torch.no_grad():
                 # Apply optional cap on test batches
                 _max_test = getattr(args, 'max_test_batches', 0) or 0
@@ -920,6 +949,26 @@ if __name__ == '__main__':
                     pred_np = G_pred.int().cpu().numpy()
                     gt_np = test_change_bin.cpu().numpy().astype(np.uint8)
                     metric.update_cm(pr=pred_np, gt=gt_np)
+
+                    # Update segmentation confusion matrix if GT available
+                    if 'L1' in test_data and 'L2' in test_data:
+                        pred_seg_t1 = torch.argmax(seg_logits_t1.detach(), dim=1)
+                        pred_seg_t2 = torch.argmax(seg_logits_t2.detach(), dim=1)
+
+                        pred_seg_t1_np = pred_seg_t1.cpu().numpy().astype(np.uint8)
+                        pred_seg_t2_np = pred_seg_t2.cpu().numpy().astype(np.uint8)
+                        gt_seg_t1_np = seg_t1.detach().cpu().numpy().astype(np.uint8)
+                        gt_seg_t2_np = seg_t2.detach().cpu().numpy().astype(np.uint8)
+
+                        # Basic shape alignment like in validation (squeeze potential extra dims)
+                        if gt_seg_t1_np.ndim > pred_seg_t1_np.ndim:
+                            gt_seg_t1_np = np.squeeze(gt_seg_t1_np)
+                        if gt_seg_t2_np.ndim > pred_seg_t2_np.ndim:
+                            gt_seg_t2_np = np.squeeze(gt_seg_t2_np)
+
+                        test_metric_seg.update_cm(pr=pred_seg_t1_np, gt=gt_seg_t1_np)
+                        test_metric_seg.update_cm(pr=pred_seg_t2_np, gt=gt_seg_t2_np)
+                        test_seg_updates += 2
 
                     # Optional: log first batch of test predictions (segmentations + probs)
                     if current_step == 0:
@@ -1019,4 +1068,23 @@ if __name__ == '__main__':
                     message += '{:s}: {:.4e} '.format(k, v)
                     message += '\n'
                 logger.info(message)
+                # WandB: log test epoch metrics (change and segmentation)
+                wandb.log({
+                    'test/epoch_mF1_change': float(scores.get('mf1', 0.0)),
+                    'test/epoch_mIoU_change': float(scores.get('miou', 0.0)),
+                    'test/epoch_OA_change': float(scores.get('acc', 0.0)),
+                    'epoch': current_epoch
+                })
+
+                if test_seg_updates > 0:
+                    test_scores_seg = test_metric_seg.get_scores()
+                    wandb.log({
+                        'test/epoch_mF1': float(test_scores_seg.get('mf1', 0.0)),
+                        'test/epoch_mIoU': float(test_scores_seg.get('miou', 0.0)),
+                        'test/epoch_OA': float(test_scores_seg.get('acc', 0.0)),
+                        'test/epoch_sek': float(test_scores_seg.get('SCD_Sek', 0.0)),
+                        'test/epoch_fscd': float(test_scores_seg.get('Fscd', 0.0)),
+                        'test/epoch_iou_mean': float(test_scores_seg.get('SCD_IoU_mean', 0.0)),
+                        'epoch': current_epoch
+                    })
                 logger.info('End of testing...')
