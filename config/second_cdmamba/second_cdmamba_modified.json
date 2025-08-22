@@ -52,7 +52,7 @@
       "lambda_seg": 1.0,
       "lambda_cd": 1.0,
       "lambda_unch": 0,
-      "lambda_ch": 0,
+      "lambda_ch": 0.2,
       "lambda_cpl": 0,
       "T": 4.0,
       "margin": 0.3
