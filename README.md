@@ -99,3 +99,32 @@ ${DATASET_ROOT} # Dataset root directory, for example: /home/username/data/LEVIR
 │   ├── val.txt
 │   └── test.txt
 ```
+
+
+
+## Training
+
+Run training with all available CLI args. Most hyperparameters (dataset paths, batch size, epochs, model config) are read from the JSON config.
+
+```bash
+python -u train_cd_modified.py \
+  --config config/second_cdmamba/second_cdmamba_modified.json \
+  --phase train \
+  --model CDMamba \
+  --dataset SECOND \
+  --tag exp1 \
+  --seed 123 \
+  --max_train_batches 500 \
+  --max_val_batches 100 \
+  --max_test_batches 2 \
+  --change_threshold 0.5
+```
+
+- __--config__: path to the JSON config. Edit dataset roots, batch size, epochs, paths, etc. in this file.
+- __--phase__: set to `train` for training (and validation). Use `test` to run the test loop only.
+- __--model/--dataset/--tag__: optional; used for naming the run folder and WandB run name.
+- __--seed__: optional; accepted for compatibility.
+- __--max_*_batches__: limit batches for quick tests; `0` means no limit.
+- __--change_threshold__: probability threshold for binarizing the change head (class-1).
+
+Results, logs, and checkpoints are written under folders defined in `path_cd` inside the config. The script will create timestamped subfolders per run.

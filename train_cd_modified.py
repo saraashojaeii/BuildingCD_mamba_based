@@ -52,7 +52,7 @@ if __name__ == '__main__':
     opt = Logger.dict_to_nonedict(opt)
 
     # Create a unique timestamped experiment subfolder for logs/results/checkpoints
-    exp_timestamp = datetime.now().strftime('%Y%m%d_%H')
+    exp_timestamp = datetime.now().strftime('%m%d_%H')
     exp_name = opt.get('name', 'experiment')
     dataset_suffix = getattr(args, 'dataset', None) or ''
     tag_suffix = getattr(args, 'tag', None) or ''
@@ -63,9 +63,9 @@ if __name__ == '__main__':
         suffix_parts.append(str(tag_suffix))
     suffix = '_'.join(suffix_parts)
     if suffix:
-        exp_folder = f"{exp_name}_{exp_timestamp}_{suffix}"
+        exp_folder = f"{suffix}_{exp_timestamp}"
     else:
-        exp_folder = f"{exp_name}_{exp_timestamp}"
+        exp_folder = f"{exp_timestamp}"
     for k in ['log', 'result', 'checkpoint']:
         if k in opt['path_cd'] and isinstance(opt['path_cd'][k], str):
             base_dir = opt['path_cd'][k]
