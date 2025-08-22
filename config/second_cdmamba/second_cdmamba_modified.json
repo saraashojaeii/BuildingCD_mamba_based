@@ -8,9 +8,9 @@
   },
 
   "path_cd": {
-    "log": "/mnt/dest/Building_changedetection_job/experiments/logs",
-    "result": "/mnt/dest/Building_changedetection_job/experiments/results",
-    "checkpoint": "/mnt/dest/Building_changedetection_job/experiments/checkpoint",
+    "log": "/root/home/pvc/Building_changedetection_job/experiments/logs",
+    "result": "/root/home/pvc/Building_changedetection_job/experiments/results",
+    "checkpoint": "/root/home/pvc/Building_changedetection_job/experiments/checkpoint",
     "resume_state": null
   },
 
@@ -51,7 +51,7 @@
     "extended_triplet": {
       "lambda_seg": 1.0,
       "lambda_cd": 1.0,
-      "lambda_unch": 0,
+      "lambda_unch": 0, 
       "lambda_ch": 0.2,
       "lambda_cpl": 0,
       "T": 4.0,
