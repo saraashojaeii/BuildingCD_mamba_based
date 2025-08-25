@@ -82,7 +82,9 @@
     "val_print_iter" : 50,
     "optimizer" :{
       "type" : "adam",
-      "lr" : 1e-4
+      "lr" : 1e-4,
+    "beta1": 0.9,
+    "beta2": 0.999
     },
     "sheduler" : {
       "lr_policy" : "linear",

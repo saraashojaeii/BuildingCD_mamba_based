@@ -215,7 +215,8 @@ if __name__ == '__main__':
     # Initialize mixed precision scaler
     scaler = torch.cuda.amp.GradScaler()
     
-    metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection (change/no-change)
+    metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection
+    metric_seg = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])  # For 6-class segmentation
     log_dict = OrderedDict()
 
     if torch.cuda.is_available():
@@ -229,7 +230,8 @@ if __name__ == '__main__':
         epoch_losses = []
         for current_epoch in range(0, opt['train']['n_epoch']):
             print("......Begin Training......")
-            metric.clear()
+            metric.clear()  # Clear binary change metrics
+            metric_seg.clear()  # Clear segmentation metrics
             cd_model.train()
             train_result_path = '{}/train/{}'.format(opt['path_cd']['result'], current_epoch)
             os.makedirs(train_result_path, exist_ok=True)
@@ -524,7 +526,23 @@ if __name__ == '__main__':
 
                 current_score = metric.update_cm(pr=pred_np, gt=gt_np)
                 log_dict['running_acc'] = current_score.item()
-                wandb.log({'train_loss': train_loss.item(), 'train_running_acc': current_score.item()})
+                
+                # Update segmentation metrics (6-class)
+                pred_seg_t1_np = pred_seg_t1.detach().cpu().numpy().astype(np.uint8)
+                pred_seg_t2_np = pred_seg_t2.detach().cpu().numpy().astype(np.uint8)
+                gt_seg_t1_np = seg_t1.detach().cpu().numpy().astype(np.uint8)
+                gt_seg_t2_np = seg_t2.detach().cpu().numpy().astype(np.uint8)
+                
+                # Update metrics for both T1 and T2 segmentation heads
+                seg_score_t1 = metric_seg.update_cm(pr=pred_seg_t1_np, gt=gt_seg_t1_np)
+                seg_score_t2 = metric_seg.update_cm(pr=pred_seg_t2_np, gt=gt_seg_t2_np)
+                seg_score_avg = (seg_score_t1 + seg_score_t2) / 2.0
+                
+                wandb.log({
+                    'train_loss': train_loss.item(), 
+                    'train_running_acc': current_score.item(),
+                    'train_running_seg_mf1': seg_score_avg.item()
+                })
 
                 # Logging with GPU monitoring
                 if current_step % opt['train']['train_print_iter'] == 0:
@@ -534,9 +552,9 @@ if __name__ == '__main__':
                         gpu_memory_cached = torch.cuda.memory_reserved() / 1024**3
                         gpu_memory_info = f", GPU Memory: {gpu_memory_allocated:.2f}GB/{gpu_memory_cached:.2f}GB"
                     
-                    message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, running_mf1: %.5f%s\n' % (
+                    message = '[Training CD]. epoch: [%d/%d]. Itter: [%d/%d], CD_loss: %.5f, change_mf1: %.5f, seg_mf1: %.5f%s\n' % (
                         current_epoch, opt['train']['n_epoch'], current_step, len(train_loader), train_loss.item(),
-                        current_score.item(), gpu_memory_info)
+                        current_score.item(), seg_score_avg.item(), gpu_memory_info)
                     logger.info(message)
                 
                 # Final cleanup of saved tensors
@@ -544,19 +562,32 @@ if __name__ == '__main__':
                 # torch.cuda.empty_cache()
 
             ### Epoch Summary ###
+            # Get binary change detection scores
             scores = metric.get_scores()
             epoch_acc = scores['mf1']
+            
+            # Get segmentation scores (6-class)
+            scores_seg = metric_seg.get_scores()
+            epoch_seg_mf1 = scores_seg['mf1']
+            epoch_seg_miou = scores_seg['miou']
+            epoch_seg_acc = scores_seg['acc']
+            
             # Compute average epoch loss
             avg_epoch_loss = (epoch_loss / len(train_loader)) if len(train_loader) > 0 else 0.0
             
-            # Log training epoch summary
+            # Log training epoch summary with both change and segmentation metrics
             wandb.log({
-                'train/epoch_mF1': epoch_acc,
+                # Binary change detection metrics
+                'train/epoch_mF1_change': epoch_acc,
+                'train/epoch_mIoU_change': scores.get('miou', 0),
+                'train/epoch_OA_change': scores.get('acc', 0),
+                # Multi-class segmentation metrics
+                'train/epoch_mF1_seg': epoch_seg_mf1,
+                'train/epoch_mIoU_seg': epoch_seg_miou,
+                'train/epoch_OA_seg': epoch_seg_acc,
+                # Overall metrics
                 'train/epoch_loss': avg_epoch_loss,
-                'train/epoch_mIoU': scores.get('mIoU', 0),
-                'train/epoch_OA': scores.get('OA', 0),
-                # flat keys as requested
-                'train_epoch_mf1': epoch_acc,
+                'train_epoch_mf1': epoch_acc,  # Keep for backward compatibility
                 'train_epoch_loss': avg_epoch_loss,
                 'epoch': current_epoch
             })
