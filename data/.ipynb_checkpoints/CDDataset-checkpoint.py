@@ -131,86 +131,95 @@ class SCDDataset(Dataset):
         img_name = self.img_name_list[index % self.data_len]
         A_path = get_img_path(self.root_dir, img_name)
         B_path = get_img_post_path(self.root_dir, img_name)
-        # Handle both Windows and Unix path separators
         name = os.path.basename(A_path).split('.')[0]
+    
+        # --- load images ---
         img_A = Image.open(A_path).convert('RGB')
         img_B = Image.open(B_path).convert('RGB')
-
-        img_name = self.img_name_list[index % self.data_len]
-        L_path = get_label_path(self.root_dir, img_name)
+    
+        # --- load labels (as RGB) ---
+        L_path  = get_label_path(self.root_dir, img_name)   # optional, we will re-derive anyway
         L1_path = get_label1_path(self.root_dir, img_name)
         L2_path = get_label2_path(self.root_dir, img_name)
-        
+    
         try:
-            img_label = np.array(Image.open(L_path).convert('RGB'), dtype=np.uint8)
-            img_label1 = np.array(Image.open(L1_path).convert('RGB'), dtype=np.uint8)
-            img_label2 = np.array(Image.open(L2_path).convert('RGB'), dtype=np.uint8)
+            rgb_L  = np.array(Image.open(L_path).convert('RGB'),  dtype=np.uint8) if os.path.exists(L_path) else None
+            rgb_L1 = np.array(Image.open(L1_path).convert('RGB'), dtype=np.uint8)
+            rgb_L2 = np.array(Image.open(L2_path).convert('RGB'), dtype=np.uint8)
         except Exception as e:
             print(f"Error loading label images for {img_name}: {e}")
-            # Create empty arrays as fallback
-            img_label = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
-            img_label1 = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
-            img_label2 = np.zeros((self.resolution, self.resolution), dtype=np.uint8)
-
+            # fallback empty labels
+            rgb_L  = None
+            rgb_L1 = np.zeros((self.resolution, self.resolution, 3), dtype=np.uint8)
+            rgb_L2 = np.zeros((self.resolution, self.resolution, 3), dtype=np.uint8)
+    
+        # --- map RGB -> class ids ---
         from data.util import rgb_mask_to_class
         from data.colormap import second_colormap
-        if img_label.ndim == 3 and img_label.shape[2] == 3:
-            img_label = rgb_mask_to_class(img_label, second_colormap)
-        if img_label1.ndim == 3 and img_label1.shape[2] == 3:
-            img_label1 = rgb_mask_to_class(img_label1, second_colormap)
-        if img_label2.ndim == 3 and img_label2.shape[2] == 3:
-            img_label2 = rgb_mask_to_class(img_label2, second_colormap)
-
-        # Transform images to tensors with normalization
-        img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))
+        lab1 = rgb_mask_to_class(rgb_L1, second_colormap)   # [H,W] int
+        lab2 = rgb_mask_to_class(rgb_L2, second_colormap)   # [H,W] int
+    
+        # --- resize everything to the same size (nearest for labels) ---
+        # use self.resolution or image size; here we enforce square (H=W=resolution)
+        target_size = (self.resolution, self.resolution)
+    
+        # images: use bilinear when you later tensorize; here keep PIL
+        img_A = img_A.resize(target_size, resample=Image.BILINEAR)
+        img_B = img_B.resize(target_size, resample=Image.BILINEAR)
+    
+        # labels: nearest!
+        lab1_pil = Image.fromarray(lab1.astype(np.uint8))
+        lab2_pil = Image.fromarray(lab2.astype(np.uint8))
+        lab1 = np.array(lab1_pil.resize(target_size, resample=Image.NEAREST), dtype=np.uint8)
+        lab2 = np.array(lab2_pil.resize(target_size, resample=Image.NEAREST), dtype=np.uint8)
+    
+        # Optional: if an L file exists and you want to compare it:
+        if rgb_L is not None:
+            # convert provided L (RGB) to binary [H,W] (assumes 0/255 or palette)
+            # Most robust: derive from lab1/lab2 instead of trusting file L
+            pass
+    
+        # --- apply paired spatial augs (if you have any) ---
+        # If Util.transform_augment_cd does spatial ops, you must apply identical params to labels.
+        # If it only normalizes to [-1,1], it's fine to call it on images after resizing.
+        img_A = Util.transform_augment_cd(img_A, min_max=(-1, 1))  # -> tensor [3,H,W] float
         img_B = Util.transform_augment_cd(img_B, min_max=(-1, 1))
-        
-        # Convert labels to tensors
-        img_label = torch.from_numpy(img_label)
-        img_label1 = torch.from_numpy(img_label1)
-        img_label2 = torch.from_numpy(img_label2)
-        
-        # Handle multi-channel labels by taking first channel if needed
-        if img_label.dim() > 2:
-            img_label = img_label[0]
-            img_label1 = img_label1[0]
-            img_label2 = img_label2[0]
-        
-        # Define number of classes
-        num_classes = 7  # This should match your model's num_classes
-        max_class_id = num_classes - 1  # For 7 classes (0-6)
-        
-        # Normalize label values to be within valid range
-        img_label = torch.clamp(img_label, 0, max_class_id)
-        img_label1 = torch.clamp(img_label1, 0, max_class_id)
-        img_label2 = torch.clamp(img_label2, 0, max_class_id)
-        
-        # Create one-hot encoded class presence vectors
-        cls_label1 = torch.zeros(num_classes, dtype=torch.int)
-        cls_label2 = torch.zeros(num_classes, dtype=torch.int)
-        
-        # Get unique class categories
-        cls_category1 = torch.unique(img_label1)
-        cls_category2 = torch.unique(img_label2)
-        
-        # Set class presence for label1
-        for index in cls_category1:
-            idx = int(index)
-            if idx < num_classes:
-                cls_label1[idx] = 1
-            else:
-                print(f"Warning: Label index {idx} exceeds number of classes {num_classes}. Skipping.")
-        
-        # Set class presence for label2
-        for index in cls_category2:
-            idx = int(index)
-            if idx < num_classes:
-                cls_label2[idx] = 1
-            else:
-                print(f"Warning: Label index {idx} exceeds number of classes {num_classes}. Skipping.")
+    
+        # --- derive change AFTER transforms/resize ---
+        IGNORE = 255
+        lab1_t = torch.from_numpy(lab1.astype(np.int64))          # [H,W] long
+        lab2_t = torch.from_numpy(lab2.astype(np.int64))          # [H,W] long
+        valid = (lab1_t != IGNORE) & (lab2_t != IGNORE)
+        change_bin = ((lab1_t != lab2_t) & valid).long()          # [H,W] {0,1}
+    
+        # --- clamp labels to model range ---
+        # Get from your config to avoid mismatches (you had 6 classes earlier)
+        num_classes = int(self.label_transform.get('num_classes', 6)) if self.label_transform else 6
+        max_class_id = num_classes - 1
+        lab1_t = lab1_t.clamp(0, max_class_id)
+        lab2_t = lab2_t.clamp(0, max_class_id)
+    
+        # --- class presence vectors (optional) ---
+        cls1 = torch.zeros(num_classes, dtype=torch.int32)
+        cls2 = torch.zeros(num_classes, dtype=torch.int32)
+        for v in torch.unique(lab1_t):
+            vi = int(v)
+            if 0 <= vi <= max_class_id: cls1[vi] = 1
+        for v in torch.unique(lab2_t):
+            vi = int(v)
+            if 0 <= vi <= max_class_id: cls2[vi] = 1
+    
+        return {
+            'A': img_A,                # [3,H,W] float in [-1,1]
+            'B': img_B,                # [3,H,W]
+            'L': change_bin,           # [H,W] long {0,1}  <-- matches change head target
+            'L1': lab1_t,              # [H,W] long in [0..K-1]
+            'L2': lab2_t,              # [H,W] long in [0..K-1]
+            'Index': index,
+            'name': name,
+            'cls1': cls1, 'cls2': cls2
+        }
 
-        return {'A':img_A, 'B':img_B, 'L':img_label, 'L1':img_label1, 'L2':img_label2,
-                'Index':index, 'name':name, 'cls1':cls_label1, 'cls2':cls_label2}
 
 if __name__ == '__main__':
     # Use a platform-independent path
