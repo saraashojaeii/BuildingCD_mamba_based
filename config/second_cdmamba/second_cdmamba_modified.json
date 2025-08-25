@@ -4,7 +4,7 @@
   "gpu_ids":[0],
 
   "wandb": {
-    "project": "BuildingCD_mamba_based"
+    "project": "mamba-cd-test"
   },
 
   "path_cd": {
