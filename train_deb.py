@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     # Create a unique timestamped experiment subfolder for logs/results/checkpoints
     exp_timestamp = datetime.now().strftime('%m%d_%H')
-exp_name = opt.get('name', 'experiment')
+    exp_name = opt.get('name', 'experiment')
     dataset_suffix = getattr(args, 'dataset', None) or ''
     tag_suffix = getattr(args, 'tag', None) or ''
     seed_suffix = f"seed{args.seed}" if getattr(args, "seed", None) is not None else ""
@@ -258,7 +258,7 @@ if torch.cuda.is_available():
     except Exception as e:
         logger.warning(f"set_per_process_memory_fraction failed: {e}")
 
-        
+
     #################
     # Training loop #
     #################
