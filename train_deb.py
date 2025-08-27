@@ -98,27 +98,18 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
 
-    WANDB_ENABLED = False
-    use_wandb = bool(opt.get('wandb') and opt['wandb'].get('project'))
-
-    if use_wandb:
+    # Initialize wandb only on main process
+    if opt.get('wandb') and opt['wandb'].get('project'):
+        # Compose run name with dataset/tag suffixes for wandb as well
         run_name = exp_folder
+        wandb.init(project=opt['wandb']['project'], config=opt, name=run_name)
         try:
-            wandb.init(project=opt['wandb']['project'], name=run_name)
-            WANDB_ENABLED = getattr(wandb, "run", None) is not None
-        except Exception as e:
-            logger.warning(f"W&B init failed: {e}. Disabling.")
-            try:
-                wandb.init(mode="disabled")
-            except Exception:
-                pass
-            WANDB_ENABLED = False
-    else:
-        try:
-            wandb.init(mode="disabled")
+            if hasattr(wandb, 'run') and wandb.run is not None:
+                wandb.run.name = run_name
         except Exception:
             pass
-        WANDB_ENABLED = False
+    else:
+        wandb.init(mode="disabled")
 
 
     def seed_worker(worker_id):
