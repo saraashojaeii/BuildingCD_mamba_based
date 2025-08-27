@@ -461,7 +461,7 @@ if torch.cuda.is_available():
                     pred_change_bin = (change_p1 > args.change_threshold).long()
 
                 # Log first-batch images (guarded)
-                log_images_this_step = (current_step == 0) and WANDB_ENABLED
+                log_images_this_step = (current_step == 0) 
 
                 if log_images_this_step:
                     # Prepare GT visualizations
