@@ -945,6 +945,38 @@ if __name__ == '__main__':
             
             logger.info(f'Validation - Epoch: {current_epoch}, Loss: {avg_val_loss:.5f}, mF1: {val_epoch_mf1:.5f}, mIoU: {val_epoch_miou:.5f}, OA: {val_epoch_acc:.5f}, Sek: {val_epoch_sek:.5f}, Fscd: {val_epoch_fscd:.5f}, IoU_mean: {val_epoch_iou_mean:.5f}')
             
+            # Save best model based on validation mF1
+            if val_epoch_mf1 > best_mF1:
+                best_mF1 = val_epoch_mf1
+                # Save the model state dict
+                best_model_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
+                
+                # Handle DataParallel if used
+                if isinstance(cd_model, nn.DataParallel):
+                    model_state = cd_model.module.state_dict()
+                else:
+                    model_state = cd_model.state_dict()
+                
+                torch.save(model_state, best_model_path)
+                logger.info(f'New best model saved with mF1: {best_mF1:.5f} at {best_model_path}')
+                
+                # Also save using the save_network function for compatibility
+                save_network(opt, current_epoch, cd_model, optimer, is_best_model=True)
+                
+                # Log to wandb
+                wandb.log({
+                    'best_val_mF1': best_mF1,
+                    'best_model_epoch': current_epoch
+                })
+            else:
+                logger.info(f'Current mF1: {val_epoch_mf1:.5f} did not improve from best: {best_mF1:.5f}')
+            
+            # Save regular checkpoint every epoch (regardless of performance)
+            save_network(opt, current_epoch, cd_model, optimer, is_best_model=False)
+            
+            # Update learning rate scheduler if needed
+            # scheduler.step()  # Uncomment if using a scheduler
+            
             # Load the best model for testing
             gen_path = os.path.join(opt['path_cd']['checkpoint'], 'best_net.pth')
             if os.path.exists(gen_path):
