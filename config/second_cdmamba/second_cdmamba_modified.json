@@ -4,7 +4,7 @@
   "gpu_ids":[0],
 
   "wandb": {
-    "project": "mamba-cd-test"
+    "project": "BuildingCD_mamba_cascade"
   },
 
   "path_cd": {
@@ -76,7 +76,7 @@
   },
 
   "train" : {
-    "n_epoch" : 1,
+    "n_epoch" : 200,
     "train_print_iter" : 500,
     "val_freq" : 1,
     "val_print_iter" : 50,
