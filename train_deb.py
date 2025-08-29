@@ -179,7 +179,7 @@ if __name__ == '__main__':
     # Calculate GFLOPs and print model summary
     try:
         # Create dummy input with the same shape as your model's input
-        input_size = [(1, 3, 512, 512), (1, 3, 512, 512)]  # For dual-input models
+        input_size = [(2, 3, 512, 512), (2, 3, 512, 512)]  # For dual-input models
         
         # Get model summary with FLOPs calculation
         model_summary = summary(
