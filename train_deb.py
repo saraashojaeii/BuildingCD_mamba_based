@@ -165,6 +165,12 @@ if __name__ == '__main__':
     cd_model.apply(init_weights)
     cd_model.to(device)
     logger.info(f'CD Model moved to device: {device}')
+    # Calculate and log total number of parameters
+    
+    total_params = sum(p.numel() for p in cd_model.parameters())
+    trainable_params = sum(p.numel() for p in cd_model.parameters() if p.requires_grad)
+    logger.info(f'Total parameters: {total_params:,}')
+    logger.info(f'Trainable parameters: {trainable_params:,} ({100 * trainable_params / total_params:.2f}% of total)')
     
     # Verify model is actually on GPU
     if torch.cuda.is_available():
