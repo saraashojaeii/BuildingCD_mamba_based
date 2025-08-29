@@ -1,5 +1,6 @@
 import torch
 import os
+from thop import profile, clever_format
 # Set CUDA memory management before importing torch
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
@@ -174,6 +175,23 @@ if __name__ == '__main__':
     
     print("Total parameters: ", total_params)
     print(f'Trainable parameters: {trainable_params:,} ({100 * trainable_params / total_params:.2f}% of total)')
+    
+    # Calculate GFLOPs
+    try:
+        # Create dummy input with the same shape as your model's input
+        dummy_input1 = torch.randn(1, 3, 512, 512).to(device)  # Adjust size according to your input
+        dummy_input2 = torch.randn(1, 3, 512, 512).to(device)  # For dual-input models
+        
+        # Calculate FLOPs and parameters
+        macs, _ = profile(cd_model, inputs=(dummy_input1, dummy_input2))
+        gflops = macs / 1e9  # Convert to GFLOPs
+        
+        logger.info(f'Model GFLOPs: {gflops:.2f}')
+        print(f'Model GFLOPs: {gflops:.2f}')
+    except Exception as e:
+        logger.warning(f'Could not calculate GFLOPs: {str(e)}')
+        print(f'Warning: Could not calculate GFLOPs: {str(e)}')
+    
     # Verify model is actually on GPU
     if torch.cuda.is_available():
         model_device = next(cd_model.parameters()).device
