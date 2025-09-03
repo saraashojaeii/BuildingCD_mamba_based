@@ -99,6 +99,16 @@ if __name__ == '__main__':
             label = label.convert('L')
         infer_array = np.array(infer)
         label_array = np.array(label)
+        # Remap 255 -> 1 for binary masks
+        if label_array.max() == 255 and args.num_class == 2:
+            label_array = (label_array == 255).astype(np.uint8)
+        # Remap color to class index for multiclass masks (update mapping as needed)
+        if args.num_class > 2:
+            color_to_class = {38: 0, 75: 1, 128: 2, 150: 3, 200: 4, 255: 5}  # <-- Update this mapping for your dataset!
+            label_indices = np.zeros_like(label_array)
+            for color, idx in color_to_class.items():
+                label_indices[label_array == color] = idx
+            label_array = label_indices
         if infer_array.shape != label_array.shape:
             print(f"[WARNING] Shape mismatch: {infer_file} {infer_array.shape} vs {label_file} {label_array.shape} -- Skipping.")
             continue
