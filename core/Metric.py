@@ -78,9 +78,9 @@ if __name__ == '__main__':
             for color, idx_c in color_to_class.items():
                 label_indices[label_array == color] = idx_c
             label_array = label_indices
-        # Debug: print unique values
-        print(f"[DEBUG] {infer_file} unique pred: {np.unique(infer_array)}")
-        print(f"[DEBUG] {label_file} unique label: {np.unique(label_array)}")
+        # # Debug: print unique values
+        # print(f"[DEBUG] {infer_file} unique pred: {np.unique(infer_array)}")
+        # print(f"[DEBUG] {label_file} unique label: {np.unique(label_array)}")
         all_label_values.update(np.unique(label_array))
         # Debug: save first 5 prediction/label pairs
         if idx < 5:
