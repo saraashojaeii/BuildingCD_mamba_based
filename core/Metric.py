@@ -85,8 +85,8 @@ if __name__ == '__main__':
         # Debug: save first 5 prediction/label pairs
         if idx < 5:
             from PIL import Image as PILImage
-            PILImage.fromarray(infer_array.astype(np.uint8)).save(f'debug_pred_{idx}.png')
-            PILImage.fromarray(label_array.astype(np.uint8)).save(f'debug_label_{idx}.png')
+            PILImage.fromarray(infer_array.astype(np.uint8)*255).save(f'debug_pred_{idx}.png')
+            PILImage.fromarray(label_array.astype(np.uint8)*255).save(f'debug_label_{idx}.png')
         if infer_array.shape != label_array.shape:
             print(f"[WARNING] Shape mismatch: {infer_file} {infer_array.shape} vs {label_file} {label_array.shape} -- Skipping.")
             continue
