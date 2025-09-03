@@ -227,6 +227,8 @@ if torch.cuda.is_available():
         logger.warning(f"set_per_process_memory_fraction failed: {e}")
 
     # --------- TEST ONLY MODE ---------
+    from PIL import Image
+
     if opt['phase'] == 'test':
         cd_model.load_state_dict(torch.load(args.weights))
         cd_model.eval()
@@ -255,25 +257,25 @@ if torch.cuda.is_available():
                     seg_logits_t1 = seg_logits_t2 = None
                 # Get predictions
                 if seg_logits_t1 is not None:
-                    pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)[0].cpu().numpy()
+                    pred_seg_t1 = torch.argmax(seg_logits_t1, dim=1)[0].cpu().numpy().astype(np.uint8)
                 else:
                     pred_seg_t1 = None
                 if seg_logits_t2 is not None:
-                    pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)[0].cpu().numpy()
+                    pred_seg_t2 = torch.argmax(seg_logits_t2, dim=1)[0].cpu().numpy().astype(np.uint8)
                 else:
                     pred_seg_t2 = None
                 if change_pred is not None:
                     change_probs = torch.softmax(change_pred, dim=1)[0].cpu().numpy()
-                    pred_change = np.argmax(change_probs, axis=0)
+                    pred_change = np.argmax(change_probs, axis=0).astype(np.uint8)
                 else:
                     pred_change = None
-                # Save results
+                # Save results as single-channel PNGs
                 if pred_seg_t1 is not None:
-                    plt.imsave(os.path.join(opt['path_cd']['result'], f'{name}_pred_seg_t1.png'), pred_seg_t1)
+                    Image.fromarray(pred_seg_t1).save(os.path.join(opt['path_cd']['result'], f'{name}_pred_seg_t1.png'))
                 if pred_seg_t2 is not None:
-                    plt.imsave(os.path.join(opt['path_cd']['result'], f'{name}_pred_seg_t2.png'), pred_seg_t2)
+                    Image.fromarray(pred_seg_t2).save(os.path.join(opt['path_cd']['result'], f'{name}_pred_seg_t2.png'))
                 if pred_change is not None:
-                    plt.imsave(os.path.join(opt['path_cd']['result'], f'{name}_pred_change.png'), pred_change)
+                    Image.fromarray(pred_change).save(os.path.join(opt['path_cd']['result'], f'{name}_pred_change.png'))
         print(f"Test results saved to {opt['path_cd']['result']}")
         exit(0)
 
