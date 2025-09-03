@@ -97,6 +97,9 @@ if __name__ == '__main__':
         label = Image.open(label_file)
         infer_array = np.array(infer)
         label_array = np.array(label)
+        if infer_array.shape != label_array.shape:
+            print(f"[WARNING] Shape mismatch: {infer_file} {infer_array.shape} vs {label_file} {label_array.shape} -- Skipping.")
+            continue
         hist += get_hist(infer_array, label_array)
 
     hist_fg = hist[1:, 1:]
