@@ -35,37 +35,6 @@ def cal_kappa(hist):
     return kappa
 
 
-# def Eval(num_class):
-#     name_list = sorted(os.listdir(INFER_DIR))
-#     hist = np.zeros((num_class, num_class))
-#     for idx in range(len(name_list)):
-#         name = name_list[idx].split('.')[0]
-#         infer_file = INFER_DIR + '/' + str(name) + IMAGE_FORMAT
-#         label_file = LABEL_DIR + '/' + str(name) + IMAGE_FORMAT
-#         infer = Image.open(infer_file)
-#         label = Image.open(label_file)
-#         infer_array = np.array(infer)
-#         label_array = np.array(label)
-#         hist += get_hist(infer_array, label_array)
-
-#     hist_fg = hist[1:, 1:]
-#     c2hist = np.zeros((2, 2))
-#     c2hist[0][0] = hist[0][0]
-#     c2hist[0][1] = hist.sum(1)[0] - hist[0][0]
-#     c2hist[1][0] = hist.sum(0)[0] - hist[0][0]
-#     c2hist[1][1] = hist_fg.sum()
-#     hist_n0 = hist.copy()
-#     hist_n0[0][0] = 0
-#     kappa_n0 = cal_kappa(hist_n0)
-#     iu = np.diag(c2hist) / (c2hist.sum(1) + c2hist.sum(0) - np.diag(c2hist))
-#     IoU_fg = iu[1]
-#     IoU_mean = (iu[0] + iu[1]) / 2
-#     Sek = (kappa_n0 * math.exp(IoU_fg)) / math.e
-
-#     print('Mean IoU = %.5f' % IoU_mean)
-#     print('Sek = %.5f' % Sek)
-
-
 if __name__ == '__main__':
     import argparse
     import glob
@@ -83,7 +52,8 @@ if __name__ == '__main__':
     name_list = [os.path.basename(f).replace(args.suffix, '') for f in pred_files]
 
     hist = np.zeros((args.num_class, args.num_class))
-    for name in name_list:
+    all_label_values = set()
+    for idx, name in enumerate(name_list):
         infer_file = os.path.join(args.pred_dir, f'{name}{args.suffix}')
         label_file = os.path.join(args.label_dir, f'{name}{args.format}')
         if not os.path.exists(infer_file):
@@ -105,9 +75,18 @@ if __name__ == '__main__':
         if args.num_class > 2:
             color_to_class = {38: 0, 75: 1, 128: 2, 150: 3, 200: 4, 255: 5}  # <-- Update this mapping for your dataset!
             label_indices = np.zeros_like(label_array)
-            for color, idx in color_to_class.items():
-                label_indices[label_array == color] = idx
+            for color, idx_c in color_to_class.items():
+                label_indices[label_array == color] = idx_c
             label_array = label_indices
+        # Debug: print unique values
+        print(f"[DEBUG] {infer_file} unique pred: {np.unique(infer_array)}")
+        print(f"[DEBUG] {label_file} unique label: {np.unique(label_array)}")
+        all_label_values.update(np.unique(label_array))
+        # Debug: save first 5 prediction/label pairs
+        if idx < 5:
+            from PIL import Image as PILImage
+            PILImage.fromarray(infer_array.astype(np.uint8)).save(f'debug_pred_{idx}.png')
+            PILImage.fromarray(label_array.astype(np.uint8)).save(f'debug_label_{idx}.png')
         if infer_array.shape != label_array.shape:
             print(f"[WARNING] Shape mismatch: {infer_file} {infer_array.shape} vs {label_file} {label_array.shape} -- Skipping.")
             continue
@@ -117,6 +96,7 @@ if __name__ == '__main__':
             print(f"[WARNING] Out-of-range or negative class in {infer_file} or {label_file}. Unique values: pred={np.unique(infer_array)}, label={np.unique(label_array)} -- Skipping.")
             continue
         hist += get_hist(infer_array, label_array, args.num_class)
+    print("All unique label values in dataset:", all_label_values)
 
     hist_fg = hist[1:, 1:]
     c2hist = np.zeros((2, 2))
