@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_test_batches', type=int, default=0, help='Limit number of test batches (0 = no limit)')
     # Threshold for converting probs to binary mask (class-1)
     parser.add_argument('--change_threshold', type=float, default=0.2, help='Probability threshold for change class (class-1) binarization')
-
+    parser.add_argument('--weights', type=str, required=True, help='/root/home/pvc/Building_changedetection_job/experiments')
     # Parse config
     args = parser.parse_args()
     opt = Logger.parse(args)
@@ -228,6 +228,7 @@ if torch.cuda.is_available():
 
     # --------- TEST ONLY MODE ---------
     if opt['phase'] == 'test':
+        cd_model.load_state_dict(torch.load(args.weights))
         cd_model.eval()
         os.makedirs(opt['path_cd']['result'], exist_ok=True)
         from tqdm import tqdm
