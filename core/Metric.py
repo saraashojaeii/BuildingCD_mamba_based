@@ -14,7 +14,7 @@ def fast_hist(a, b, n):
     return np.bincount(n * a[k].astype(int) + b[k], minlength=n ** 2).reshape(n, n)
 
 
-def get_hist(image, label):
+def get_hist(image, label, num_class):
     hist = np.zeros((num_class, num_class))
     hist += fast_hist(image.flatten(), label.flatten(), num_class)
     return hist
@@ -35,35 +35,35 @@ def cal_kappa(hist):
     return kappa
 
 
-def Eval():
-    name_list = sorted(os.listdir(INFER_DIR))
-    hist = np.zeros((num_class, num_class))
-    for idx in range(len(name_list)):
-        name = name_list[idx].split('.')[0]
-        infer_file = INFER_DIR + '/' + str(name) + IMAGE_FORMAT
-        label_file = LABEL_DIR + '/' + str(name) + IMAGE_FORMAT
-        infer = Image.open(infer_file)
-        label = Image.open(label_file)
-        infer_array = np.array(infer)
-        label_array = np.array(label)
-        hist += get_hist(infer_array, label_array)
+# def Eval(num_class):
+#     name_list = sorted(os.listdir(INFER_DIR))
+#     hist = np.zeros((num_class, num_class))
+#     for idx in range(len(name_list)):
+#         name = name_list[idx].split('.')[0]
+#         infer_file = INFER_DIR + '/' + str(name) + IMAGE_FORMAT
+#         label_file = LABEL_DIR + '/' + str(name) + IMAGE_FORMAT
+#         infer = Image.open(infer_file)
+#         label = Image.open(label_file)
+#         infer_array = np.array(infer)
+#         label_array = np.array(label)
+#         hist += get_hist(infer_array, label_array)
 
-    hist_fg = hist[1:, 1:]
-    c2hist = np.zeros((2, 2))
-    c2hist[0][0] = hist[0][0]
-    c2hist[0][1] = hist.sum(1)[0] - hist[0][0]
-    c2hist[1][0] = hist.sum(0)[0] - hist[0][0]
-    c2hist[1][1] = hist_fg.sum()
-    hist_n0 = hist.copy()
-    hist_n0[0][0] = 0
-    kappa_n0 = cal_kappa(hist_n0)
-    iu = np.diag(c2hist) / (c2hist.sum(1) + c2hist.sum(0) - np.diag(c2hist))
-    IoU_fg = iu[1]
-    IoU_mean = (iu[0] + iu[1]) / 2
-    Sek = (kappa_n0 * math.exp(IoU_fg)) / math.e
+#     hist_fg = hist[1:, 1:]
+#     c2hist = np.zeros((2, 2))
+#     c2hist[0][0] = hist[0][0]
+#     c2hist[0][1] = hist.sum(1)[0] - hist[0][0]
+#     c2hist[1][0] = hist.sum(0)[0] - hist[0][0]
+#     c2hist[1][1] = hist_fg.sum()
+#     hist_n0 = hist.copy()
+#     hist_n0[0][0] = 0
+#     kappa_n0 = cal_kappa(hist_n0)
+#     iu = np.diag(c2hist) / (c2hist.sum(1) + c2hist.sum(0) - np.diag(c2hist))
+#     IoU_fg = iu[1]
+#     IoU_mean = (iu[0] + iu[1]) / 2
+#     Sek = (kappa_n0 * math.exp(IoU_fg)) / math.e
 
-    print('Mean IoU = %.5f' % IoU_mean)
-    print('Sek = %.5f' % Sek)
+#     print('Mean IoU = %.5f' % IoU_mean)
+#     print('Sek = %.5f' % Sek)
 
 
 if __name__ == '__main__':
@@ -116,7 +116,7 @@ if __name__ == '__main__':
             infer_array.min() < 0 or label_array.min() < 0):
             print(f"[WARNING] Out-of-range or negative class in {infer_file} or {label_file}. Unique values: pred={np.unique(infer_array)}, label={np.unique(label_array)} -- Skipping.")
             continue
-        hist += get_hist(infer_array, label_array)
+        hist += get_hist(infer_array, label_array, args.num_class)
 
     hist_fg = hist[1:, 1:]
     c2hist = np.zeros((2, 2))
