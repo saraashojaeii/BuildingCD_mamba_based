@@ -95,10 +95,16 @@ if __name__ == '__main__':
             continue
         infer = Image.open(infer_file)
         label = Image.open(label_file)
+        if label.mode != 'L':
+            label = label.convert('L')
         infer_array = np.array(infer)
         label_array = np.array(label)
         if infer_array.shape != label_array.shape:
             print(f"[WARNING] Shape mismatch: {infer_file} {infer_array.shape} vs {label_file} {label_array.shape} -- Skipping.")
+            continue
+        # Check for out-of-range values
+        if infer_array.max() >= args.num_class or label_array.max() >= args.num_class:
+            print(f"[WARNING] Out-of-range class in {infer_file} or {label_file}. Unique values: pred={np.unique(infer_array)}, label={np.unique(label_array)} -- Skipping.")
             continue
         hist += get_hist(infer_array, label_array)
 
