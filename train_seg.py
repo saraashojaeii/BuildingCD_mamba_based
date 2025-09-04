@@ -486,7 +486,14 @@ if torch.cuda.is_available():
                     print("\nLOSS DEBUG INFO:")
                     print("-"*60)
                     print(f"Total train loss (scaled): {train_loss.item():.6f}")
-                    print(f"Loss components - seg_t1: {loss_dict['seg_t1']}, seg_t2: {loss_dict['seg_t2']}, change: {loss_dict['change']}")
+                    # Safely print available loss components (segmentation-only has no 'change')
+                    _seg1 = loss_dict.get('seg_t1')
+                    _seg2 = loss_dict.get('seg_t2')
+                    _chg  = loss_dict.get('change', None)
+                    if _chg is None:
+                        print(f"Loss components - seg_t1: {_seg1}, seg_t2: {_seg2}")
+                    else:
+                        print(f"Loss components - seg_t1: {_seg1}, seg_t2: {_seg2}, change: {_chg}")
                     print(f"Loss requires_grad: {train_loss.requires_grad}")
                     print("-"*60)
 
