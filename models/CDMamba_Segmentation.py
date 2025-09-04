@@ -268,7 +268,7 @@ class CDMamba(nn.Module):
 
 if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    model = CDMamba(
+    model = CDMamba_Seg(
         spatial_dims=2,
         in_channels=3,
         num_classes=6,
