@@ -893,43 +893,15 @@ if torch.cuda.is_available():
                         })
 
                     # Visuals for saving PNGs
-                    visuals = OrderedDict()
-                    visuals['pred_cm'] = binary_pred  # Use binary prediction for visualization
-                    visuals['gt_cm'] = test_change_bin.int()  # Use normalized binary GT for visualization
+                    visuals = OrderedDict())  # Use normalized binary GT for visualization
 
                     # Convert to uint8 images and save
                     img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))
                     img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))
 
-                    # Handle tensor dimensions properly for visualization
-                    gt_tensor = visuals['gt_cm']
-                    pred_tensor = visuals['pred_cm']
-                    
-                    # Ensure tensors are in correct format (B, H, W) before adding channel dimension
-                    if gt_tensor.dim() > 3:
-                        gt_tensor = gt_tensor.squeeze()  # Remove extra dimensions
-                    if pred_tensor.dim() > 3:
-                        pred_tensor = pred_tensor.squeeze()  # Remove extra dimensions
-                        
-                    # Add channel dimension and repeat for RGB
-                    if gt_tensor.dim() == 3:  # (B, H, W)
-                        gt_tensor = gt_tensor.unsqueeze(1)  # (B, 1, H, W)
-                    elif gt_tensor.dim() == 2:  # (H, W)
-                        gt_tensor = gt_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-                        
-                    if pred_tensor.dim() == 3:  # (B, H, W)
-                        pred_tensor = pred_tensor.unsqueeze(1)  # (B, 1, H, W)
-                    elif pred_tensor.dim() == 2:  # (H, W)
-                        pred_tensor = pred_tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-                    
-                    gt_cm = Metrics.tensor2img(gt_tensor.repeat(1, 3, 1, 1), out_type=np.uint8, min_max=(0, 1))
-                    pred_cm = Metrics.tensor2img(pred_tensor.repeat(1, 3, 1, 1), out_type=np.uint8, min_max=(0, 1))
-
                     # Save imgs
                     Metrics.save_img(img_A, '{}/img_A_{}.png'.format(test_result_path, current_step))
                     Metrics.save_img(img_B, '{}/img_B_{}.png'.format(test_result_path, current_step))
-                    Metrics.save_img(pred_cm, '{}/img_pred_cm{}.png'.format(test_result_path, current_step))
-                    Metrics.save_img(gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
 
                 message = '[Test CD summary]: Test mF1=%.5f \n' % \
                         (logs['epoch_acc'])
