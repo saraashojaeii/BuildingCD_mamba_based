@@ -892,9 +892,6 @@ if torch.cuda.is_available():
                             "test/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Test Pred Seg T2 Max Probability")],
                         })
 
-                    # Visuals for saving PNGs
-                    visuals = OrderedDict())  # Use normalized binary GT for visualization
-
                     # Convert to uint8 images and save
                     img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))
                     img_B = Metrics.tensor2img(test_data['B'], out_type=np.uint8, min_max=(-1, 1))
