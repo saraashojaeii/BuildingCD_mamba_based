@@ -595,14 +595,10 @@ if torch.cuda.is_available():
             epoch_losses.append(avg_epoch_loss)
 
             wandb.log({
-                'train/epoch_mF1_change': epoch_acc,
-                'train/epoch_mIoU_change': scores.get('miou', 0),
-                'train/epoch_OA_change': scores.get('acc', 0),
                 'train/epoch_mF1_seg': epoch_seg_mf1,
                 'train/epoch_mIoU_seg': epoch_seg_miou,
                 'train/epoch_OA_seg': epoch_seg_acc,
                 'train/epoch_loss': avg_epoch_loss,
-                'train_epoch_mf1': epoch_acc,   # backward-compat key
                 'train_epoch_loss': avg_epoch_loss,
                 'epoch': current_epoch
             })
@@ -810,7 +806,6 @@ if torch.cuda.is_available():
             else:
                 logger.warning(f'Best model not found at {gen_path}, using current model')
             cd_model.to(device)
-            metric.clear()
 
             
             cd_model.eval()
@@ -935,26 +930,13 @@ if torch.cuda.is_available():
                     Metrics.save_img(pred_cm, '{}/img_pred_cm{}.png'.format(test_result_path, current_step))
                     Metrics.save_img(gt_cm, '{}/img_gt_cm{}.png'.format(test_result_path, current_step))
 
-                ### log epoch status ###
-                scores = metric.get_scores()
-                epoch_acc = scores['mf1']
-                log_dict['epoch_acc'] = epoch_acc.item()
-                for k, v in scores.items():
-                    log_dict[k] = v
-                logs = log_dict
                 message = '[Test CD summary]: Test mF1=%.5f \n' % \
                         (logs['epoch_acc'])
                 for k, v in logs.items():
                     message += '{:s}: {:.4e} '.format(k, v)
                     message += '\n'
                 logger.info(message)
-                # WandB: log test epoch metrics (change and segmentation)
-                wandb.log({
-                    'test/epoch_mF1_change': float(scores.get('mf1', 0.0)),
-                    'test/epoch_mIoU_change': float(scores.get('miou', 0.0)),
-                    'test/epoch_OA_change': float(scores.get('acc', 0.0)),
-                    'epoch': current_epoch
-                })
+
 
                 if test_seg_updates > 0:
                     test_scores_seg = test_metric_seg.get_scores()
