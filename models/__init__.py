@@ -41,10 +41,18 @@ def create_CD_model(opt):
                               mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
     # sota model
     elif opt['model']['name'] == 'cdmamba_seg':
-        cd_model = cdmamba_seg(spatial_dims=opt['model']['spatial_dims'], in_channels=opt['model']['in_channels'], init_filters=opt['model']['init_filters'], num_classes=opt['model']['n_classes'],
-                              mode=opt['model']['mode'], conv_mode=opt['model']['conv_mode'], up_mode=opt['model']['up_mode'], up_conv_mode=opt['model']['up_conv_mode'], norm=opt['model']['norm'],
-                              blocks_down=opt['model']['blocks_down'], blocks_up=opt['model']['blocks_up'], resdiual=opt['model']['resdiual'], diff_abs=opt['model']['diff_abs'], stage=opt['model']['stage'],
-                              mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
+        # Segmentation-only model expects a simpler signature
+        cd_model = cdmamba_seg(
+            spatial_dims=opt['model']['spatial_dims'],
+            in_channels=opt['model']['in_channels'],
+            init_filters=opt['model']['init_filters'],
+            num_classes=opt['model']['n_classes'],
+            conv_mode=opt['model']['conv_mode'],
+            norm=opt['model']['norm'],
+            blocks_down=opt['model']['blocks_down'],
+            blocks_up=opt['model']['blocks_up'],
+            up_conv_mode=opt['model']['up_conv_mode'],
+        )
     # sota model
     elif opt['model']['name'] == 'bifa':
         cd_model = bifa(backbone="mit_b0")

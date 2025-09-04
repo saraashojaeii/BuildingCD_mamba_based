@@ -1,6 +1,9 @@
 import torch
 import os
-from torchinfo import summary
+try:
+    from torchinfo import summary
+except Exception:
+    summary = None
 # Set CUDA memory management before importing torch
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
@@ -177,13 +180,16 @@ if __name__ == '__main__':
     print("Total parameters: ", total_params)
     print(f'Trainable parameters: {trainable_params:,} ({100 * trainable_params / total_params:.2f}% of total)')
     
-    # Calculate GFLOPs and print model summary (skip on CPU for speed)
-    if device.type == 'cuda':
+    # Calculate GFLOPs and print model summary (skip on CPU or if torchinfo missing)
+    if device.type == 'cuda' and summary is not None:
         try:
-            # Create dummy input with the same shape as your model's input
-            input_size = [(2, 3, 512, 512), (2, 3, 512, 512)]  # For dual-input models
+            # Choose input size depending on model type
+            model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
+            if model_name == 'cdmamba_seg':
+                input_size = (2, 3, 512, 512)  # single-input segmentation model
+            else:
+                input_size = [(2, 3, 512, 512), (2, 3, 512, 512)]  # dual-input models
 
-            # Get model summary with FLOPs calculation
             model_summary = summary(
                 cd_model,
                 input_size=input_size,
@@ -192,7 +198,6 @@ if __name__ == '__main__':
                 col_names=["input_size", "output_size", "num_params", "mult_adds"],
             )
 
-            # Extract total FLOPs (mult_adds) from summary
             total_flops = model_summary.total_mult_adds / 1e9  # Convert to GFLOPs
             logger.info(f'Model GFLOPs: {total_flops:.2f}')
             print(f'Model GFLOPs: {total_flops:.2f}')
@@ -202,7 +207,10 @@ if __name__ == '__main__':
             logger.warning(f'Could not calculate GFLOPs: {str(e)}')
             print(f'Warning: Could not calculate GFLOPs: {str(e)}')
     else:
-        logger.info('Skipping GFLOPs/model summary on CPU to speed up startup.')
+        if summary is None:
+            logger.info('Skipping GFLOPs/model summary: torchinfo not installed.')
+        else:
+            logger.info('Skipping GFLOPs/model summary on CPU to speed up startup.')
     
     # Verify model is actually on GPU
     if torch.cuda.is_available():
@@ -341,7 +349,14 @@ if torch.cuda.is_available():
 
                 # ------------------ Forward (with AMP) ------------------
                 with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
-                    outputs = cd_model(train_im1, train_im2)
+                    # Support single-input segmentation model by running it on each image
+                    model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
+                    if model_name == 'cdmamba_seg':
+                        seg_logits_t1 = cd_model(train_im1)
+                        seg_logits_t2 = cd_model(train_im2)
+                        outputs = (seg_logits_t1, seg_logits_t2)
+                    else:
+                        outputs = cd_model(train_im1, train_im2)
 
                     # Unpack model outputs
                     if isinstance(outputs, dict):
