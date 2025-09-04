@@ -900,14 +900,6 @@ if torch.cuda.is_available():
                     Metrics.save_img(img_A, '{}/img_A_{}.png'.format(test_result_path, current_step))
                     Metrics.save_img(img_B, '{}/img_B_{}.png'.format(test_result_path, current_step))
 
-                message = '[Test CD summary]: Test mF1=%.5f \n' % \
-                        (logs['epoch_acc'])
-                for k, v in logs.items():
-                    message += '{:s}: {:.4e} '.format(k, v)
-                    message += '\n'
-                logger.info(message)
-
-
                 if test_seg_updates > 0:
                     test_scores_seg = test_metric_seg.get_scores()
                     wandb.log({
