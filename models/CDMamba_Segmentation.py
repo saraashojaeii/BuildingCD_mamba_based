@@ -119,7 +119,7 @@ class SRCMBlock(nn.Module):
 
 # removed multi-branch fusion classes (L_GF, G_GF, AdaptiveGate) for segmentation-only
 
-class CDMamba(nn.Module):
+class CDMamba_seg(nn.Module):
     """
     Segmentation-only Mamba-based Model.
     - Single input image -> per-pixel segmentation logits (num_classes channels).
@@ -268,7 +268,7 @@ class CDMamba(nn.Module):
 
 if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    model = CDMamba_Seg(
+    model = CDMamba_seg(
         spatial_dims=2,
         in_channels=3,
         num_classes=6,
