@@ -284,7 +284,6 @@ if __name__ == '__main__':
     # Initialize mixed precision scaler
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
         
-    metric = ConfuseMatrixMeter(n_class=2)  # For binary change detection
     metric_seg = ConfuseMatrixMeter(n_class=opt['model']['n_classes'])  # For 6-class segmentation
     log_dict = OrderedDict()
 
@@ -308,7 +307,6 @@ if torch.cuda.is_available():
 
         for current_epoch in range(n_epochs):
             print("......Begin Training......")
-            metric.clear()
             metric_seg.clear()
             cd_model.train()
 
@@ -546,11 +544,7 @@ if torch.cuda.is_available():
                     # pred_change_bin must be defined earlier when change head exists; ensure it is available
                     pred_np = pred_change_bin.detach().cpu().numpy().astype(np.uint8)
                     gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
-                    _score  = metric.update_cm(pr=pred_np, gt=gt_np)
-                    try:
-                        current_score_val = float(_score.item())
-                    except Exception:
-                        current_score_val = float(_score)
+                    
 
                 # Segmentation (multi-class)
                 pred_seg_t1_np = pred_seg_t1.detach().cpu().numpy().astype(np.uint8)
@@ -592,8 +586,6 @@ if torch.cuda.is_available():
                     del gt_bin
 
             # ------------------ Epoch summary ------------------
-            scores = metric.get_scores()          # change (binary)
-            epoch_acc = scores['mf1']
             scores_seg = metric_seg.get_scores()  # segmentation (multi-class)
             epoch_seg_mf1  = scores_seg['mf1']
             epoch_seg_miou = scores_seg['miou']
