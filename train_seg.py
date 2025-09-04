@@ -740,15 +740,7 @@ if torch.cuda.is_available():
                             "global_step": current_epoch * len(train_loader) + len(train_loader),
                         })
             
-            wandb.log({
-                'val/epoch_mF1': val_epoch_mf1,
-                'val/epoch_mIoU': val_epoch_miou,
-                'val/epoch_OA': val_epoch_acc,
-                'val/epoch_sek': val_epoch_sek,
-                'val/epoch_fscd': val_epoch_fscd,
-                'val/epoch_iou_mean': val_epoch_iou_mean,
-                'epoch': current_epoch
-            })
+            
             
             # Validation epoch summary metrics
             val_scores = val_metric.get_scores()
@@ -758,7 +750,15 @@ if torch.cuda.is_available():
             val_epoch_sek = val_scores['SCD_Sek']
             val_epoch_fscd = val_scores['Fscd']
             val_epoch_iou_mean = val_scores['SCD_IoU_mean']
-        
+            wandb.log({
+                'val/epoch_mF1': val_epoch_mf1,
+                'val/epoch_mIoU': val_epoch_miou,
+                'val/epoch_OA': val_epoch_acc,
+                'val/epoch_sek': val_epoch_sek,
+                'val/epoch_fscd': val_epoch_fscd,
+                'val/epoch_iou_mean': val_epoch_iou_mean,
+                'epoch': current_epoch
+            })
             logger.info(f'Validation - Epoch: {current_epoch}, mF1: {val_epoch_mf1:.5f}, mIoU: {val_epoch_miou:.5f}, OA: {val_epoch_acc:.5f}, Sek: {val_epoch_sek:.5f}, Fscd: {val_epoch_fscd:.5f}, IoU_mean: {val_epoch_iou_mean:.5f}')
             # Save best model based on validation mF1
             if val_epoch_mf1 > best_mF1:
