@@ -414,8 +414,14 @@ if torch.cuda.is_available():
                     if isinstance(seg_t1, torch.Tensor): seg_t1 = seg_t1.to(device).long()
                     if isinstance(seg_t2, torch.Tensor): seg_t2 = seg_t2.to(device).long()
 
-                    # ------------------ Compute loss (NO thresholding) ------------------
-                    if opt['model']['loss'] == 'extended_triplet':
+                    # ------------------ Compute loss (segmentation-only for cdmamba_seg) ------------------
+                    if (isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg'):
+                        # Pure segmentation loss: sum of CE on T1 and T2
+                        loss_t1 = F.cross_entropy(seg_logits_t1, seg_t1)
+                        loss_t2 = F.cross_entropy(seg_logits_t2, seg_t2)
+                        raw_loss = loss_t1 + loss_t2
+                        loss_dict = {'seg_t1': float(loss_t1.item()), 'seg_t2': float(loss_t2.item())}
+                    elif opt['model']['loss'] == 'extended_triplet':
                         # Expect (seg_t1, seg_t2)
                         assert isinstance(outputs, (tuple, list)) and len(outputs) == 2, \
                             "Expected model to return (seg_t1, seg_t2)"
@@ -621,25 +627,22 @@ if torch.cuda.is_available():
                     val_seg_t1 = val_data['L1'].to(device)
                     val_seg_t2 = val_data['L2'].to(device)
                     
-                    # Forward pass
-                    val_outputs = cd_model(val_img1, val_img2)
-                    
-                    if opt['model']['loss'] == 'extended_triplet':
-                        val_seg_logits_t1, val_seg_logits_t2 = val_outputs
-                        
-                        val_targets = {
-                            "seg_t1": val_seg_t1,
-                            "seg_t2": val_seg_t2
-                        }
-                        val_loss, val_loss_dict = loss_fun(val_outputs, val_targets)
-
-                        val_targets = {
-                            "seg_t1": val_seg_t1,
-                            "seg_t2": val_seg_t2
-                        }
-                        # Replace the change_pred part of val_outputs for loss calculation
-                        val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2)
-                        val_loss, val_loss_dict = loss_fun(val_outputs_adjusted, val_targets)
+                    # Forward pass (support single-input segmentation model)
+                    model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
+                    if model_name == 'cdmamba_seg':
+                        val_seg_logits_t1 = cd_model(val_img1)
+                        val_seg_logits_t2 = cd_model(val_img2)
+                        # segmentation-only validation loss
+                        loss_t1 = F.cross_entropy(val_seg_logits_t1, val_seg_t1)
+                        loss_t2 = F.cross_entropy(val_seg_logits_t2, val_seg_t2)
+                        val_loss = loss_t1 + loss_t2
+                    else:
+                        val_outputs = cd_model(val_img1, val_img2)
+                        if opt['model']['loss'] == 'extended_triplet':
+                            val_seg_logits_t1, val_seg_logits_t2 = val_outputs
+                            val_targets = {"seg_t1": val_seg_t1, "seg_t2": val_seg_t2}
+                            val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2)
+                            val_loss, val_loss_dict = loss_fun(val_outputs_adjusted, val_targets)
                     
                     val_loss_total += val_loss.item()
                     val_steps += 1
