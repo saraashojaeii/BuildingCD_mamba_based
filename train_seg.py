@@ -537,11 +537,20 @@ if torch.cuda.is_available():
                     })
 
                 # ------------------ Metrics ------------------
-                # Change (binary)
-                gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
-                pred_np = pred_change_bin.detach().cpu().numpy().astype(np.uint8)
-                gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
-                current_score = metric.update_cm(pr=pred_np, gt=gt_np)
+                # Change (binary) — skip for segmentation-only model
+                model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
+                if model_name == 'cdmamba_seg':
+                    current_score_val = 0.0
+                else:
+                    gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
+                    # pred_change_bin must be defined earlier when change head exists; ensure it is available
+                    pred_np = pred_change_bin.detach().cpu().numpy().astype(np.uint8)
+                    gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
+                    _score  = metric.update_cm(pr=pred_np, gt=gt_np)
+                    try:
+                        current_score_val = float(_score.item())
+                    except Exception:
+                        current_score_val = float(_score)
 
                 # Segmentation (multi-class)
                 pred_seg_t1_np = pred_seg_t1.detach().cpu().numpy().astype(np.uint8)
@@ -555,7 +564,7 @@ if torch.cuda.is_available():
                 # Log batch metrics
                 log_dict = {
                     'train_loss': train_loss.item(),
-                    'train_running_acc': current_score.item(),
+                    'train_running_acc': current_score_val,
                     'train_running_seg_mf1': seg_score_avg.item()
                 }
                 wandb.log(log_dict)
@@ -569,7 +578,7 @@ if torch.cuda.is_available():
                         gpu_info = f", GPU Memory: {mem_alloc:.2f}GB/{mem_resv:.2f}GB"
                     logger.info('[Training CD]. epoch: [%d/%d]. Iter: [%d/%d], CD_loss: %.5f, change_mF1: %.5f, seg_mF1: %.5f%s\n' %
                                 (current_epoch, n_epochs, current_step, _train_total,
-                                train_loss.item(), current_score.item(), seg_score_avg.item(), gpu_info))
+                                train_loss.item(), current_score_val, seg_score_avg.item(), gpu_info))
 
                 # Accumulate epoch loss
                 epoch_loss += train_loss.item()
@@ -578,7 +587,9 @@ if torch.cuda.is_available():
                 del outputs, seg_logits_t1, seg_logits_t2
                 del seg_t1, seg_t2
                 del pred_seg_t1, pred_seg_t2
-                del gt_bin
+                # Guard deletion for seg-only path where gt_bin may not exist
+                if 'gt_bin' in locals():
+                    del gt_bin
 
             # ------------------ Epoch summary ------------------
             scores = metric.get_scores()          # change (binary)
