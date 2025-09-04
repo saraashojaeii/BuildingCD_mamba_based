@@ -825,9 +825,14 @@ if torch.cuda.is_available():
                     seg_t1 = test_data['L1']
                     seg_t2 = test_data['L2']
 
-                    outputs = cd_model(test_img1, test_img2)
-                    
-                    seg_logits_t1, seg_logits_t2 = outputs
+                    # Forward pass for testing (support single-input segmentation model)
+                    _model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
+                    if _model_name == 'cdmamba_seg':
+                        seg_logits_t1 = cd_model(test_img1)
+                        seg_logits_t2 = cd_model(test_img2)
+                    else:
+                        outputs = cd_model(test_img1, test_img2)
+                        seg_logits_t1, seg_logits_t2 = outputs
                     
                     # Update segmentation confusion matrix if GT available
                     pred_seg_t1 = torch.argmax(seg_logits_t1.detach(), dim=1)
