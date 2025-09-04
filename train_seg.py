@@ -604,7 +604,7 @@ if torch.cuda.is_available():
             })
 
             logger.info(f'Training - Epoch: {current_epoch}, Avg Loss: {avg_epoch_loss:.5f}, '
-                        f'Change mF1: {epoch_acc:.5f}, Seg mF1: {epoch_seg_mf1:.5f}')
+                        f'Seg mF1: {epoch_seg_mf1:.5f}')
             if len(epoch_losses) > 1:
                 trend = "↓" if epoch_losses[-1] < epoch_losses[-2] else "↑"
                 logger.info(f'Loss trend: {trend} (Prev: {epoch_losses[-2]:.5f}, Curr: {epoch_losses[-1]:.5f})')
