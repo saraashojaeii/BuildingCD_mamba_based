@@ -25,7 +25,7 @@ def create_CD_model(opt):
     # Our CDMamba models
     from models.CDMamba import CDMamba as cdmamba
     from models.CDMamba_modified import CDMamba as cdmamba_modified
-    from models.cdmamba_seg import CDMamba_seg as cdmamba_seg
+    from models.CDMamba_Segmentation import CDMamba_seg as cdmamba_seg
 
     cd_model = None
 
