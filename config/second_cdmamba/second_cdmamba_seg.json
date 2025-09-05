@@ -47,18 +47,19 @@
 
   "model" : {
     "name" : "cdmamba_seg",
-    "loss": "extended_triplet",
-    "extended_triplet": {
-      "lambda_seg": 1.0,
-      "lambda_cd": 0,
-      "lambda_unch": 0, 
-      "lambda_ch": 0,
-      "lambda_cpl": 0,
-      "T": 2.0,
-      "margin": 0.3
-    },
+    "loss": "seg_loss",
+    // "extended_triplet": {
+    //   "lambda_seg": 1.0,
+    //   "lambda_cd": 0,
+    //   "lambda_unch": 0, 
+    //   "lambda_ch": 0,
+    //   "lambda_cpl": 0,
+    //   "T": 2.0,
+    //   "margin": 0.3
+    // },
     "init_filters" : 16,
     "n_classes" : 6,
+    "ignore_index": 255,
     "mode" : "AGLGF",
     "conv_mode" : "orignal_dinner",
     "local_query_model" : "orignal_dinner",
@@ -81,8 +82,8 @@
     "val_freq" : 1,
     "val_print_iter" : 50,
     "optimizer" :{
-      "type" : "adam",
-      "lr" : 1e-4,
+      "type" : "adamW",
+      "lr" : 3e-4,
     "beta1": 0.9,
     "beta2": 0.999
     },

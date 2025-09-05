@@ -3,6 +3,25 @@ import os
 import random
 import numpy as np
 
+def estimate_class_counts(dataloader, num_classes: int, ignore_index: int = 255, max_batches: Optional[int] = None):
+    counts = torch.zeros(num_classes, dtype=torch.long)
+    seen = 0
+    for batch in dataloader:
+        # adapt to your batch structure
+        # assume batch = {"image": X, "label": Y} or (X, Y)
+        if isinstance(batch, dict):
+            y = batch["label"]
+        else:
+            y = batch[1]
+        y = y.long()  # [B,H,W]
+        mask = (y != ignore_index) & (y >= 0) & (y < num_classes)
+        for cls in range(num_classes):
+            counts[cls] += (mask & (y == cls)).sum().item()
+        seen += 1
+        if max_batches is not None and seen >= max_batches:
+            break
+    return counts
+
 def set_seed(seed: int):
     """Ensure reproducibility across runs."""
     if seed is None:

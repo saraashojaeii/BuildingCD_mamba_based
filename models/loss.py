@@ -560,3 +560,194 @@ class TripletChangeSegLoss(nn.Module):
             "ch_div": L_ch.item(),
             "couple": L_cpl.item()
         }
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional, Sequence
+
+# ---------------------------
+# Utilities
+# ---------------------------
+
+def compute_class_weights(
+    class_counts: torch.Tensor,
+    method: str = "median_frequency",
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Args:
+        class_counts: [C] tensor with pixel counts per class (exclude ignore_index beforehand)
+        method: "inverse" or "median_frequency"
+    Returns:
+        weights [C] (float32)
+    """
+    class_counts = class_counts.float().clamp_min(eps)
+    if method == "inverse":
+        weights = 1.0 / class_counts
+        return (weights / weights.sum()) * len(class_counts)  # normalize to ~C
+    elif method == "median_frequency":
+        freq = class_counts / class_counts.sum()
+        med = torch.median(freq)
+        weights = med / freq
+        return weights
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+def one_hot_ignore(
+    target: torch.Tensor, num_classes: int, ignore_index: int
+) -> torch.Tensor:
+    """
+    Convert [B,H,W] targets to one-hot [B,C,H,W] with ignored pixels set to 0 across channels.
+    """
+    b, h, w = target.shape
+    oh = torch.zeros(b, num_classes, h, w, device=target.device, dtype=torch.float32)
+    mask = (target != ignore_index) & (target >= 0)
+    if mask.any():
+        oh.scatter_(1, target.clamp(min=0).unsqueeze(1)[mask.unsqueeze(1).expand_as(oh)].view(b, 1, -1), 1.0)
+        # The above scatter is tricky; safer approach below:
+        oh.zero_()
+        valid = mask
+        oh[torch.arange(b, device=target.device).unsqueeze(-1).unsqueeze(-1),
+           target.clamp(min=0), torch.arange(h, device=target.device).unsqueeze(0).unsqueeze(-1).expand(b, h, w),
+           torch.arange(w, device=target.device).unsqueeze(0).unsqueeze(0).expand(b, h, w)] = 1.0
+        oh *= valid.unsqueeze(1).float()
+    return oh
+
+def one_hot_ignore_safe(target: torch.Tensor, num_classes: int, ignore_index: int) -> torch.Tensor:
+    # safer, simpler implementation
+    b, h, w = target.shape
+    oh = torch.zeros(b, num_classes, h, w, device=target.device, dtype=torch.float32)
+    valid = (target != ignore_index) & (target >= 0)
+    # set ignored labels to 0 to avoid scatter issues
+    tgt = target.clone()
+    tgt[~valid] = 0
+    oh.scatter_(1, tgt.unsqueeze(1), 1.0)
+    oh *= valid.unsqueeze(1).float()
+    return oh
+
+# ---------------------------
+# Losses
+# ---------------------------
+
+class WeightedCrossEntropy(nn.Module):
+    def __init__(
+        self,
+        class_weights: Optional[torch.Tensor] = None,
+        ignore_index: int = 255,
+        reduction: str = "mean",
+        label_smoothing: float = 0.0,
+    ):
+        super().__init__()
+        self.register_buffer("class_weights", class_weights if class_weights is not None else None)
+        self.ignore_index = ignore_index
+        self.reduction = reduction
+        self.label_smoothing = label_smoothing
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        logits: [B,C,H,W]; target: [B,H,W] with ignore_index
+        """
+        return F.cross_entropy(
+            logits,
+            target,
+            weight=self.class_weights,
+            ignore_index=self.ignore_index,
+            reduction=self.reduction,
+            label_smoothing=self.label_smoothing,
+        )
+
+class SoftDiceLoss(nn.Module):
+    def __init__(
+        self,
+        ignore_index: int = 255,
+        smooth: float = 1.0,
+        include_bg: bool = True,
+        class_weights: Optional[torch.Tensor] = None,  # optional per-class weights for Dice
+    ):
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.smooth = smooth
+        self.include_bg = include_bg
+        self.register_buffer("class_weights", class_weights if class_weights is not None else None)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        logits: [B,C,H,W]; target: [B,H,W]
+        Computes per-class soft dice and averages (optionally weighted).
+        """
+        b, c, h, w = logits.shape
+        probs = F.softmax(logits, dim=1)
+
+        # one-hot with ignore handling
+        tgt_oh = one_hot_ignore_safe(target, num_classes=c, ignore_index=self.ignore_index)  # [B,C,H,W]
+        valid = (target != self.ignore_index).unsqueeze(1).float()  # [B,1,H,W]
+
+        probs = probs * valid
+        tgt_oh = tgt_oh * valid
+
+        if not self.include_bg and c > 1:
+            probs = probs[:, 1:, ...]
+            tgt_oh = tgt_oh[:, 1:, ...]
+            c_eff = c - 1
+            cw = None if self.class_weights is None else self.class_weights[1:]
+        else:
+            c_eff = probs.shape[1]
+            cw = self.class_weights
+
+        dims = (0, 2, 3)  # sum over B,H,W per class
+        intersect = torch.sum(probs * tgt_oh, dim=dims)
+        denom = torch.sum(probs, dim=dims) + torch.sum(tgt_oh, dim=dims)
+
+        dice_c = (2.0 * intersect + self.smooth) / (denom + self.smooth)  # [C]
+        dice_loss_c = 1.0 - dice_c  # per-class loss
+
+        if cw is not None:
+            cw = cw.to(dice_loss_c.dtype).to(dice_loss_c.device)
+            cw = cw[:c_eff]
+            loss = (dice_loss_c * cw).sum() / (cw.sum().clamp_min(1e-8))
+        else:
+            loss = dice_loss_c.mean()
+
+        return loss
+
+class ComboSegLoss(nn.Module):
+    """
+    L = lambda_ce * CE(weighted) + lambda_dice * SoftDice(per-class)
+    - Accepts logits or a list/tuple of logits for deep supervision. In that case, losses are averaged.
+    """
+    def __init__(
+        self,
+        class_weights_ce: Optional[torch.Tensor] = None,
+        class_weights_dice: Optional[torch.Tensor] = None,
+        ignore_index: int = 255,
+        lambda_ce: float = 0.5,
+        lambda_dice: float = 0.5,
+        label_smoothing: float = 0.0,
+        include_bg: bool = True,
+    ):
+        super().__init__()
+        self.ce = WeightedCrossEntropy(
+            class_weights=class_weights_ce,
+            ignore_index=ignore_index,
+            reduction="mean",
+            label_smoothing=label_smoothing,
+        )
+        self.dice = SoftDiceLoss(
+            ignore_index=ignore_index,
+            smooth=1.0,
+            include_bg=include_bg,
+            class_weights=class_weights_dice,
+        )
+        self.lambda_ce = lambda_ce
+        self.lambda_dice = lambda_dice
+
+    def _loss_single(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return self.lambda_ce * self.ce(logits, target) + self.lambda_dice * self.dice(logits, target)
+
+    def forward(self, logits: torch.Tensor | Sequence[torch.Tensor], target: torch.Tensor) -> torch.Tensor:
+        if isinstance(logits, (list, tuple)):
+            losses = [self._loss_single(l, target) for l in logits]
+            return torch.stack(losses).mean()
+        return self._loss_single(logits, target)

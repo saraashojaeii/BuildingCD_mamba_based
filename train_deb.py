@@ -289,6 +289,7 @@ if torch.cuda.is_available():
     #################
     if opt['phase'] == 'train':
         best_mF1 = 0.0
+        best_mF1_change = 0.0
         epoch_losses = []
 
         n_epochs = opt['train']['n_epoch']
@@ -864,7 +865,31 @@ if torch.cuda.is_available():
             else:
                 logger.info(f'Current mF1: {val_epoch_mf1:.5f} did not improve from best: {best_mF1:.5f}')
 
-            
+            if val_epoch_mf1_change > best_mF1_change:
+                best_mF1_change = val_epoch_mf1_change
+                # Save the model state dict
+                best_model_path_change = os.path.join(opt['path_cd']['checkpoint'], f'best_net_change_{current_epoch}.pth')
+                
+                # Handle DataParallel if used
+                if isinstance(cd_model, nn.DataParallel):
+                    model_state = cd_model.module.state_dict()
+                else:
+                    model_state = cd_model.state_dict()
+                
+                torch.save(model_state, best_model_path_change)
+                logger.info(f'New best model saved with change mF1: {best_mF1_change:.5f} at {best_model_path_change}')
+                
+                # Also save using the save_network function for compatibility
+                save_network(opt, current_epoch, cd_model, optimizer, is_best_model=True)
+                
+                # Log to wandb
+                wandb.log({
+                    'best_val_mF1_change': best_mF1_change,
+                    'best_model_epoch_change': current_epoch
+                })
+            else:
+                logger.info(f'Current mF1: {val_epoch_mf1_change:.5f} did not improve from best: {best_mF1_change:.5f}')
+
             # Save regular checkpoint every epoch (regardless of performance)
             save_network(opt, current_epoch, cd_model, optimizer, is_best_model=False)
 

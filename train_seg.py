@@ -23,12 +23,14 @@ from models.loss import *
 from collections import OrderedDict
 import core.metrics as Metrics
 from misc.torchutils import get_scheduler, save_network
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import wandb
 import matplotlib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from datetime import datetime
 from itertools import islice
+
 
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
@@ -147,6 +149,13 @@ if __name__ == '__main__':
             test_loader = Data.create_cd_dataloader(test_set, dataset_opt, phase, seed_worker, g)
             opt['len_test_dataloader'] = len(test_loader)
 
+    num_classes = int(opt['model']['n_classes'])
+    ignore_index = int(opt.get('train', {}).get('ignore_index', 255))
+
+    counts = estimate_class_counts(train_loader, num_classes=num_classes, ignore_index=ignore_index, max_batches=200)
+
+    ce_weights = compute_class_weights(counts, method="median_frequency").to(device)
+    dice_weights = ce_weights.clone()
 
     logger.info('Initial Dataset Finished')
 
@@ -253,6 +262,16 @@ if __name__ == '__main__':
             T=cfg.get('T', 4.0),
             margin=cfg.get('margin', 0.3)
         )
+    elif opt['model']['loss'] == 'seg_loss':
+        loss_fun = ComboSegLoss(
+            class_weights_ce=ce_weights,
+            class_weights_dice=dice_weights,     # or dice_weights
+            ignore_index=ignore_index,
+            lambda_ce=0.5,
+            lambda_dice=0.5,
+            label_smoothing=0.0,
+            include_bg=True,
+        ).to(device)
     else:
         raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
@@ -269,17 +288,23 @@ if __name__ == '__main__':
     if opt['train']["optimizer"]["type"] == 'adam':
         beta1 = opt['train']["optimizer"].get("beta1", 0.9)  # fallback default
         beta2 = opt['train']["optimizer"].get("beta2", 0.999)
-        optimizer = optim.Adam(
+        optimizer = optim.Adam( 
             cd_model.parameters(),
             lr=opt['train']["optimizer"]["lr"],
             betas=(beta1, beta2)
         )
     elif opt['train']["optimizer"]["type"] == 'adamw':
-        optimizer = optim.AdamW(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"])
+        optimizer = optim.AdamW(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"], weight_decay=1e-4)
     elif opt['train']["optimizer"]["type"] == 'sgd':
         optimizer = optim.SGD(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"],
                             momentum=0.9, weight_decay=5e-4)
 
+    
+    scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=opt['train']['n_epoch'],  # number of epochs to decay over
+        eta_min=1e-6                   # minimum learning rate
+    )
 
     # Initialize mixed precision scaler
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
@@ -404,9 +429,9 @@ if torch.cuda.is_available():
                     # Fallback for missing L1/L2
                     if (seg_t1 is None) or (seg_t2 is None):
                         # create dummy zeros to match change_pred spatial dims
-                        b, _, h, w = change_pred.shape
-                        seg_t1 = torch.zeros((b, h, w), dtype=torch.long)
-                        seg_t2 = torch.zeros((b, h, w), dtype=torch.long)
+                        b, _, h, w = seg_logits_t1.shape
+                        seg_t1 = torch.zeros((b, h, w), dtype=torch.long, device=device)
+                        seg_t2 = torch.zeros((b, h, w), dtype=torch.long, device=device)
 
                     # Ensure proper dtype/device
                     if isinstance(seg_t1, torch.Tensor): seg_t1 = seg_t1.to(device).long()
@@ -415,8 +440,8 @@ if torch.cuda.is_available():
                     # ------------------ Compute loss (segmentation-only for cdmamba_seg) ------------------
                     if (isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg'):
                         # Pure segmentation loss: sum of CE on T1 and T2
-                        loss_t1 = F.cross_entropy(seg_logits_t1, seg_t1)
-                        loss_t2 = F.cross_entropy(seg_logits_t2, seg_t2)
+                        loss_t1 = loss_fun(seg_logits_t1, seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t1, seg_t1)
+                        loss_t2 = loss_fun(seg_logits_t2, seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t2, seg_t2)
                         raw_loss = loss_t1 + loss_t2
                         loss_dict = {'seg_t1': float(loss_t1.item()), 'seg_t2': float(loss_t2.item())}
                     elif opt['model']['loss'] == 'extended_triplet':
@@ -474,10 +499,13 @@ if torch.cuda.is_available():
 
                 do_step = ((current_step + 1) % accumulation_steps == 0) or ((current_step + 1) == _train_total)
                 if do_step:
+                    # Unscale before clipping when using amp
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(cd_model.parameters(), max_norm=0.5)
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad(set_to_none=True)
+
 
                 # ------------------ Debug loss ------------------
                 if current_step == 0:
@@ -541,8 +569,6 @@ if torch.cuda.is_available():
                     current_score_val = 0.0
                 else:
                     gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
-                    # pred_change_bin must be defined earlier when change head exists; ensure it is available
-                    pred_np = pred_change_bin.detach().cpu().numpy().astype(np.uint8)
                     gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
                     
 
@@ -639,8 +665,8 @@ if torch.cuda.is_available():
                         val_seg_logits_t1 = cd_model(val_img1)
                         val_seg_logits_t2 = cd_model(val_img2)
                         # segmentation-only validation loss
-                        loss_t1 = F.cross_entropy(val_seg_logits_t1, val_seg_t1)
-                        loss_t2 = F.cross_entropy(val_seg_logits_t2, val_seg_t2)
+                        loss_t1 = loss_fun(val_seg_logits_t1, val_seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t1, val_seg_t1)
+                        loss_t2 = loss_fun(val_seg_logits_t2, val_seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t2, val_seg_t2)
                         val_loss = loss_t1 + loss_t2
                     else:
                         val_outputs = cd_model(val_img1, val_img2)
@@ -717,13 +743,6 @@ if torch.cuda.is_available():
                         # Prepare validation input images for logging
                         val_img1_np = val_img1[0].detach().cpu()
                         val_img2_np = val_img2[0].detach().cpu()
-                        
-                        def norm_img(img):
-                            img = img
-                            if img.min() < 0:
-                                img = (img + 1.0) / 2.0
-                            img = (img * 255.0).clamp(0, 255).byte()
-                            return img.permute(1,2,0).numpy() if img.ndim == 3 else img.numpy()
                             
                         wandb.log({
                             # Input images
@@ -790,7 +809,9 @@ if torch.cuda.is_available():
             # Save regular checkpoint every epoch (regardless of performance)
             save_network(opt, current_epoch, cd_model, optimizer, is_best_model=False)
 
-        
+            scheduler.step()
+            logger.info(f"[epoch {current_epoch}] lr after step: {scheduler.get_last_lr()[0]:.7f}")
+
             #################
             #    TESTING    #
             #################
