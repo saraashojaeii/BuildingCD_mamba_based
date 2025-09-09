@@ -10,7 +10,7 @@ def estimate_class_counts(dataloader, num_classes: int, ignore_index: int = 255,
         # adapt to your batch structure
         # assume batch = {"image": X, "label": Y} or (X, Y)
         if isinstance(batch, dict):
-            y = batch["label"]
+            y = batch["L1"]
         else:
             y = batch[1]
         y = y.long()  # [B,H,W]
