@@ -293,7 +293,7 @@ if __name__ == '__main__':
             lr=opt['train']["optimizer"]["lr"],
             betas=(beta1, beta2)
         )
-    elif opt['train']["optimizer"]["type"] == 'adamw':
+    elif opt['train']["optimizer"]["type"] == 'adamW':
         optimizer = optim.AdamW(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"], weight_decay=1e-4)
     elif opt['train']["optimizer"]["type"] == 'sgd':
         optimizer = optim.SGD(cd_model.parameters(), lr=opt['train']["optimizer"]["lr"],
