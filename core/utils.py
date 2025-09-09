@@ -3,7 +3,7 @@ import os
 import random
 import numpy as np
 
-def estimate_class_counts(dataloader, num_classes: int, ignore_index: int = 255, max_batches: Optional[int] = None):
+def estimate_class_counts(dataloader, num_classes: int, ignore_index: int = 255, max_batches=None):
     counts = torch.zeros(num_classes, dtype=torch.long)
     seen = 0
     for batch in dataloader:
