@@ -137,18 +137,14 @@ def create_color_mask(tensor, num_classes: int = 10):
     unique_vals = _np.unique(arr)
     
     # Fix matplotlib deprecation warning and ensure class 0 is visible
-    cmap = _mpl.colormaps.get_cmap('tab10')
-    if hasattr(cmap, 'resampled'):
-        cmap = cmap.resampled(num_classes)
+    cmap = [[255, 255, 255], [0, 0, 255], [128, 128, 128], [0, 128, 0], [0, 255, 0], [128, 0, 0], [255, 0, 0]]
+
     rgb = _np.zeros((h, w, 3), dtype=_np.uint8)
     
     # Custom color mapping to ensure class 0 is visible (not black)
     colors = []
     for i in range(num_classes):
-        color = _np.array(cmap(i)[:3]) * 255
-        # If color is too dark (close to black), make it brighter
-        if _np.sum(color) < 50:  # Very dark color
-            color = _np.array([255, 0, 0])  # Make it red instead
+        color = _np.array(cmap[i])
         colors.append(color.astype(_np.uint8))
     
     # Apply color mapping
