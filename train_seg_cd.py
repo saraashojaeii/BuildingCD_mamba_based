@@ -649,6 +649,13 @@ if torch.cuda.is_available():
                         "global_step": current_epoch * len(train_loader) + current_step
                     }
                     
+                    # Add probability maps for segmentation
+                    # Find max probability per-pixel and visualize
+                    seg_t1_max_prob, _ = torch.max(seg_t1_probs, dim=0)
+                    seg_t2_max_prob, _ = torch.max(seg_t2_probs, dim=0)
+                    wandb_log_dict["train/pred_seg_t1_prob"] = [wandb.Image(seg_t1_max_prob.detach().cpu().numpy() * 255)]
+                    wandb_log_dict["train/pred_seg_t2_prob"] = [wandb.Image(seg_t2_max_prob.detach().cpu().numpy() * 255)]
+                    
                     # Add change prediction visualization if available
                     if 'change_pred' in locals() and change_pred is not None:
                         # Visualize change prediction
@@ -1021,18 +1028,33 @@ if torch.cuda.is_available():
                             "global_step": current_epoch * len(train_loader) + len(train_loader),
                         }
                         
+                        # Store the model outputs in a reliable way
+                        if 'val_outputs' in locals() and isinstance(val_outputs, tuple) and len(val_outputs) >= 3:
+                            # Get the change prediction from outputs tuple
+                            val_change_pred_for_vis = val_outputs[2]
+                        
                         # Add change prediction visualization if available
                         if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
-                            if 'val_change_pred' in locals() and val_change_pred is not None:
+                            # Store val_change_pred in a variable that will be available in this scope
+                            current_val_change_pred = None
+                            
+                            # Check if val_outputs was populated and contains the change prediction
+                            if 'val_outputs' in locals() and isinstance(val_outputs, tuple) and len(val_outputs) >= 3:
+                                # Get the change prediction from the model outputs
+                                current_val_change_pred = val_outputs[2]
+                            elif 'val_change_pred' in locals() and val_change_pred is not None:
+                                current_val_change_pred = val_change_pred
+                                
+                            if current_val_change_pred is not None:
                                 # Visualize change prediction
-                                if val_change_pred.size(1) == 2:
+                                if current_val_change_pred.size(1) == 2:
                                     # Two-channel case: visualize probabilities
-                                    change_probs = torch.softmax(val_change_pred[0], dim=0)[1]  # Prob of 'change' class
+                                    change_probs = torch.softmax(current_val_change_pred[0], dim=0)[1]  # Prob of 'change' class
                                     change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
-                                    change_pred_mask = torch.argmax(val_change_pred[0], dim=0).detach().cpu().numpy() * 255
+                                    change_pred_mask = torch.argmax(current_val_change_pred[0], dim=0).detach().cpu().numpy() * 255
                                 else:
                                     # Single-channel case: visualize sigmoid
-                                    change_probs = torch.sigmoid(val_change_pred[0, 0])  # Prob of 'change' 
+                                    change_probs = torch.sigmoid(current_val_change_pred[0, 0])  # Prob of 'change' 
                                     change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
                                     change_pred_mask = (change_probs > 0.5).detach().cpu().numpy().astype(np.uint8) * 255
                                     
