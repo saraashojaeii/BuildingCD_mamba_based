@@ -636,16 +636,39 @@ if torch.cuda.is_available():
                     # Prob heatmaps
                     seg_t1_probs = torch.softmax(seg_logits_t1[0], dim=0)
                     seg_t2_probs = torch.softmax(seg_logits_t2[0], dim=0)
-
-                    wandb.log({
+                    
+                    # Create a dictionary for wandb logging
+                    wandb_log_dict = {
                         "train/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']))],
                         "train/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']))],
                         "train/gt_seg_t1": [wandb.Image(gt_seg_t1_img)],
                         "train/gt_seg_t2": [wandb.Image(gt_seg_t2_img)],
                         "train/input_T1": [wandb.Image(_norm_img(A0))],
                         "train/input_T2": [wandb.Image(_norm_img(B0))],
+                        "train/gt_change": [wandb.Image(gt_change_for_log[0].cpu().numpy() * 255)],  # Binary change map
                         "global_step": current_epoch * len(train_loader) + current_step
-                    })
+                    }
+                    
+                    # Add change prediction visualization if available
+                    if 'change_pred' in locals() and change_pred is not None:
+                        # Visualize change prediction
+                        if change_pred.size(1) == 2:
+                            # Two-channel case: visualize probabilities
+                            change_probs = torch.softmax(change_pred[0], dim=0)[1]  # Prob of 'change' class
+                            change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                            change_pred_mask = torch.argmax(change_pred[0], dim=0).detach().cpu().numpy() * 255
+                        else:
+                            # Single-channel case: visualize sigmoid
+                            change_probs = torch.sigmoid(change_pred[0, 0])  # Prob of 'change' 
+                            change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                            change_pred_mask = (change_probs > 0.5).detach().cpu().numpy().astype(np.uint8) * 255
+                            
+                        # Add change predictions to wandb
+                        wandb_log_dict["train/pred_change_prob"] = [wandb.Image(change_pred_vis)]
+                        wandb_log_dict["train/pred_change_mask"] = [wandb.Image(change_pred_mask)]
+                    
+                    # Log everything to wandb
+                    wandb.log(wandb_log_dict)
 
                 # ------------------ Metrics ------------------
                 # Change (binary) — calculate for models with change head
@@ -660,8 +683,34 @@ if torch.cuda.is_available():
                     gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
                     gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
                     
-                    # TODO: For extended_triplet loss, we don't calculate a specific change metric yet
-                    # For other loss functions, calculate appropriate metrics here
+                        # Extract predictions from change logits
+                    if 'change_pred' in locals() and change_pred is not None:
+                        # For 2-channel change prediction (no-change, change), take argmax
+                        if change_pred.size(1) == 2:
+                            change_pred_mask = torch.argmax(change_pred, dim=1)  # [B,H,W]
+                        # For 1-channel change prediction (logit), apply sigmoid and threshold
+                        elif change_pred.size(1) == 1:
+                            change_pred_mask = (torch.sigmoid(change_pred[:, 0]) > 0.5).long()  # [B,H,W]
+                            
+                        # Convert to numpy for metric calculation
+                        change_pred_np = change_pred_mask.detach().cpu().numpy().astype(np.uint8)
+                        
+                        # Calculate metrics (binary accuracy, IoU, F1)
+                        true_pos = np.logical_and(change_pred_np == 1, gt_np == 1).sum()
+                        false_pos = np.logical_and(change_pred_np == 1, gt_np == 0).sum()
+                        false_neg = np.logical_and(change_pred_np == 0, gt_np == 1).sum()
+                        true_neg = np.logical_and(change_pred_np == 0, gt_np == 0).sum()
+                        
+                        total = true_pos + true_neg + false_pos + false_neg
+                        change_accuracy = (true_pos + true_neg) / max(total, 1e-8)
+                        
+                        # IoU = TP/(TP+FP+FN)
+                        change_iou = true_pos / max(true_pos + false_pos + false_neg, 1e-8)
+                        
+                        # F1 = 2*TP/(2*TP+FP+FN)
+                        change_f1 = 2 * true_pos / max(2 * true_pos + false_pos + false_neg, 1e-8)
+                        
+                        current_score_val = change_f1  # Use F1 as the primary metric for change detection
                     
 
                 # Segmentation (multi-class)
@@ -676,9 +725,18 @@ if torch.cuda.is_available():
                 # Log batch metrics
                 log_dict = {
                     'train_loss': train_loss.item(),
-                    'train_running_acc': current_score_val,
                     'train_running_seg_mf1': seg_score_avg.item()
                 }
+                
+                # Add change detection metrics if available
+                if has_change_head and 'change_pred' in locals() and change_pred is not None:
+                    log_dict['train_running_change_f1'] = float(change_f1)
+                    log_dict['train_running_change_iou'] = float(change_iou)
+                    log_dict['train_running_change_acc'] = float(change_accuracy)
+                    log_dict['train_running_acc'] = float(current_score_val)  # Backward compatibility
+                else:
+                    log_dict['train_running_acc'] = 0.0  # Backward compatibility
+                
                 wandb.log(log_dict)
 
                 # Periodic console log with GPU mem
@@ -688,9 +746,14 @@ if torch.cuda.is_available():
                         mem_alloc = torch.cuda.memory_allocated() / 1024**3
                         mem_resv  = torch.cuda.memory_reserved() / 1024**3
                         gpu_info = f", GPU Memory: {mem_alloc:.2f}GB/{mem_resv:.2f}GB"
-                    logger.info('[Training CD]. epoch: [%d/%d]. Iter: [%d/%d], CD_loss: %.5f, change_mF1: %.5f, seg_mF1: %.5f%s\n' %
-                                (current_epoch, n_epochs, current_step, _train_total,
-                                train_loss.item(), current_score_val, seg_score_avg.item(), gpu_info))
+                    if has_change_head and 'change_f1' in locals():
+                        logger.info('[Training CD]. epoch: [%d/%d]. Iter: [%d/%d], CD_loss: %.5f, change_mF1: %.5f, seg_mF1: %.5f%s\n' %
+                                    (current_epoch, n_epochs, current_step, _train_total,
+                                    train_loss.item(), change_f1, seg_score_avg.item(), gpu_info))
+                    else:
+                        logger.info('[Training CD]. epoch: [%d/%d]. Iter: [%d/%d], CD_loss: %.5f, seg_mF1: %.5f%s\n' %
+                                    (current_epoch, n_epochs, current_step, _train_total,
+                                    train_loss.item(), seg_score_avg.item(), gpu_info))
 
                 # Accumulate epoch loss
                 epoch_loss += train_loss.item()
@@ -840,6 +903,40 @@ if torch.cuda.is_available():
                     val_pred_seg_t1_np = val_pred_seg_t1.cpu().numpy().astype(np.uint8)
                     val_gt_seg_t1_np = val_seg_t1.detach().cpu().numpy().astype(np.uint8)
                     val_running_mf1_seg_t1 = val_metric.update_cm(pr=val_pred_seg_t1_np, gt=val_gt_seg_t1_np)
+                    
+                    # Calculate change detection metrics if change head is available
+                    val_change_f1 = 0.0
+                    val_change_iou = 0.0
+                    val_change_acc = 0.0
+                    
+                    if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head and 'val_change_pred' in locals() and val_change_pred is not None:
+                        # Create ground truth change mask
+                        val_gt_bin = (normalize_change_target(val_seg_t1, val_seg_t2, None) > 0).long().detach()
+                        val_gt_np = val_gt_bin.cpu().numpy().astype(np.uint8)
+                        
+                        # Extract change prediction
+                        if val_change_pred.size(1) == 2:
+                            val_change_pred_mask = torch.argmax(val_change_pred, dim=1)  # [B,H,W]
+                        elif val_change_pred.size(1) == 1:
+                            val_change_pred_mask = (torch.sigmoid(val_change_pred[:, 0]) > 0.5).long()  # [B,H,W]
+                            
+                        # Convert to numpy for metric calculation
+                        val_change_pred_np = val_change_pred_mask.cpu().numpy().astype(np.uint8)
+                        
+                        # Calculate metrics (binary accuracy, IoU, F1)
+                        true_pos = np.logical_and(val_change_pred_np == 1, val_gt_np == 1).sum()
+                        false_pos = np.logical_and(val_change_pred_np == 1, val_gt_np == 0).sum()
+                        false_neg = np.logical_and(val_change_pred_np == 0, val_gt_np == 1).sum()
+                        true_neg = np.logical_and(val_change_pred_np == 0, val_gt_np == 0).sum()
+                        
+                        total = true_pos + true_neg + false_pos + false_neg
+                        val_change_acc = (true_pos + true_neg) / max(total, 1e-8)
+                        
+                        # IoU = TP/(TP+FP+FN)
+                        val_change_iou = true_pos / max(true_pos + false_pos + false_neg, 1e-8)
+                        
+                        # F1 = 2*TP/(2*TP+FP+FN)
+                        val_change_f1 = 2 * true_pos / max(2 * true_pos + false_pos + false_neg, 1e-8)
 
                     print(f"val_pred_seg_t1_np uniques: {np.unique(val_pred_seg_t1_np)}")
                     print(f"val_gt_seg_t1_np uniques: {np.unique(val_gt_seg_t1_np)}")
@@ -859,6 +956,13 @@ if torch.cuda.is_available():
                         'val_loss': float(val_loss.item()),
                         'val/running_mF1_seg': float(val_running_mf1_seg)
                     }
+                    
+                    # Add change detection metrics if available
+                    if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head and 'val_change_pred' in locals():
+                        _val_logs['val/running_change_f1'] = float(val_change_f1)
+                        _val_logs['val/running_change_iou'] = float(val_change_iou)
+                        _val_logs['val/running_change_acc'] = float(val_change_acc)
+                    
                     wandb.log(_val_logs)
             
                     # Log validation visualizations for first batch of each epoch
@@ -895,8 +999,12 @@ if torch.cuda.is_available():
                         # Prepare validation input images for logging
                         val_img1_np = val_img1[0].detach().cpu()
                         val_img2_np = val_img2[0].detach().cpu()
+                        
+                        # Create ground truth change map
+                        val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, None)
                             
-                        wandb.log({
+                        # Create a dictionary for wandb logging
+                        val_wandb_dict = {
                             # Input images
                             "val/input_T1": [wandb.Image(norm_img(val_img1_np), caption="Val Input T1")],
                             "val/input_T2": [wandb.Image(norm_img(val_img2_np), caption="Val Input T2")],
@@ -908,8 +1016,32 @@ if torch.cuda.is_available():
                             "val/pred_seg_t2_prob": [wandb.Image(val_seg_t2_max_prob, caption="Val Pred Seg T2 Max Probability")],
                             "val/pred_seg_t2": [wandb.Image(create_color_mask(val_pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Val Pred Seg T2 (multi-class)")],
                             "val/gt_seg_t2": [wandb.Image(val_gt_seg_t2_img, caption="Val GT Seg T2")],
+                            # ground truth change
+                            "val/gt_change": [wandb.Image(val_change_bin[0].cpu().numpy() * 255, caption="Val GT Change Map")],
                             "global_step": current_epoch * len(train_loader) + len(train_loader),
-                        })
+                        }
+                        
+                        # Add change prediction visualization if available
+                        if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
+                            if 'val_change_pred' in locals() and val_change_pred is not None:
+                                # Visualize change prediction
+                                if val_change_pred.size(1) == 2:
+                                    # Two-channel case: visualize probabilities
+                                    change_probs = torch.softmax(val_change_pred[0], dim=0)[1]  # Prob of 'change' class
+                                    change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                                    change_pred_mask = torch.argmax(val_change_pred[0], dim=0).detach().cpu().numpy() * 255
+                                else:
+                                    # Single-channel case: visualize sigmoid
+                                    change_probs = torch.sigmoid(val_change_pred[0, 0])  # Prob of 'change' 
+                                    change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                                    change_pred_mask = (change_probs > 0.5).detach().cpu().numpy().astype(np.uint8) * 255
+                                    
+                                # Add change predictions to wandb
+                                val_wandb_dict["val/pred_change_prob"] = [wandb.Image(change_pred_vis, caption="Val Pred Change Probability")]
+                                val_wandb_dict["val/pred_change_mask"] = [wandb.Image(change_pred_mask, caption="Val Pred Change Mask")]
+                        
+                        # Log everything to wandb
+                        wandb.log(val_wandb_dict)
             
             
             
@@ -921,7 +1053,8 @@ if torch.cuda.is_available():
             val_epoch_sek = val_scores['SCD_Sek']
             val_epoch_fscd = val_scores['Fscd']
             val_epoch_iou_mean = val_scores['SCD_IoU_mean']
-            wandb.log({
+            
+            epoch_summary = {
                 'val/epoch_mF1': val_epoch_mf1,
                 'val/epoch_mIoU': val_epoch_miou,
                 'val/epoch_OA': val_epoch_acc,
@@ -929,7 +1062,18 @@ if torch.cuda.is_available():
                 'val/epoch_fscd': val_epoch_fscd,
                 'val/epoch_iou_mean': val_epoch_iou_mean,
                 'epoch': current_epoch
-            })
+            }
+            
+            # Add change detection metrics summary if available
+            has_change_head = hasattr(cd_model, 'use_change_head') and cd_model.use_change_head
+            if has_change_head:
+                # Average change metrics over validation set
+                # Note: This is a simple approach; ideally we would compute metrics over the entire validation set
+                epoch_summary['val/epoch_change_f1'] = float(val_change_f1) if 'val_change_f1' in locals() else 0.0
+                epoch_summary['val/epoch_change_iou'] = float(val_change_iou) if 'val_change_iou' in locals() else 0.0
+                epoch_summary['val/epoch_change_acc'] = float(val_change_acc) if 'val_change_acc' in locals() else 0.0
+            
+            wandb.log(epoch_summary)
             logger.info(f'Validation - Epoch: {current_epoch}, mF1: {val_epoch_mf1:.5f}, mIoU: {val_epoch_miou:.5f}, OA: {val_epoch_acc:.5f}, Sek: {val_epoch_sek:.5f}, Fscd: {val_epoch_fscd:.5f}, IoU_mean: {val_epoch_iou_mean:.5f}')
             # Save best model based on validation mF1
             if val_epoch_mf1 > best_mF1:
@@ -1062,19 +1206,47 @@ if torch.cuda.is_available():
                         seg_t1_max_prob = torch.max(seg_t1_probs, dim=0).values.detach().cpu().numpy()  # [H,W]
                         seg_t2_max_prob = torch.max(seg_t2_probs, dim=0).values.detach().cpu().numpy()
                         
-                        wandb.log({
+                        # Create ground truth change map
+                        test_change_bin = normalize_change_target(seg_t1, seg_t2, None)
+                        
+                        # Create a dictionary for wandb logging
+                        test_wandb_dict = {
                             # Input images
                             "test/input_T1": [wandb.Image(norm_img(test_img1_np), caption="Test Input T1")],
                             "test/input_T2": [wandb.Image(norm_img(test_img2_np), caption="Test Input T2")],
                             # Multi-class segmentations (colorized)
                             "test/pred_seg_t1": [wandb.Image(create_color_mask(pred_seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T1 (multi-class)")],
                             "test/pred_seg_t2": [wandb.Image(create_color_mask(pred_seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test Pred Seg T2 (multi-class)")],
-                            "test/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes']), caption="test GT Seg T1")],
-                            "test/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes']), caption="test GT Seg T2")],
+                            "test/gt_seg_t1": [wandb.Image(create_color_mask(seg_t1[0], num_classes=opt['model']['n_classes']), caption="Test GT Seg T1")],
+                            "test/gt_seg_t2": [wandb.Image(create_color_mask(seg_t2[0], num_classes=opt['model']['n_classes']), caption="Test GT Seg T2")],
+                            # Ground truth change
+                            "test/gt_change": [wandb.Image(test_change_bin[0].cpu().numpy() * 255, caption="Test GT Change Map")],
                             # Confidence maps
                             "test/pred_seg_t1_prob": [wandb.Image(seg_t1_max_prob, caption="Test Pred Seg T1 Max Probability")],
                             "test/pred_seg_t2_prob": [wandb.Image(seg_t2_max_prob, caption="Test Pred Seg T2 Max Probability")],
-                        })
+                        }
+                        
+                        # Add change prediction visualization if outputs has change_pred
+                        if isinstance(outputs, tuple) and len(outputs) >= 3 and hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
+                            change_pred = outputs[2]
+                            # Visualize change prediction
+                            if change_pred.size(1) == 2:
+                                # Two-channel case: visualize probabilities
+                                change_probs = torch.softmax(change_pred[0], dim=0)[1]  # Prob of 'change' class
+                                change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                                change_pred_mask = torch.argmax(change_pred[0], dim=0).detach().cpu().numpy() * 255
+                            else:
+                                # Single-channel case: visualize sigmoid
+                                change_probs = torch.sigmoid(change_pred[0, 0])  # Prob of 'change' 
+                                change_pred_vis = change_probs.detach().cpu().numpy() * 255  # Scale to 0-255
+                                change_pred_mask = (change_probs > 0.5).detach().cpu().numpy().astype(np.uint8) * 255
+                                
+                            # Add change predictions to wandb
+                            test_wandb_dict["test/pred_change_prob"] = [wandb.Image(change_pred_vis, caption="Test Pred Change Probability")]
+                            test_wandb_dict["test/pred_change_mask"] = [wandb.Image(change_pred_mask, caption="Test Pred Change Mask")]
+                        
+                        # Log everything to wandb
+                        wandb.log(test_wandb_dict)
 
                     # Convert to uint8 images and save
                     img_A = Metrics.tensor2img(test_data['A'], out_type=np.uint8, min_max=(-1, 1))
@@ -1084,9 +1256,48 @@ if torch.cuda.is_available():
                     Metrics.save_img(img_A, '{}/img_A_{}.png'.format(test_result_path, current_step))
                     Metrics.save_img(img_B, '{}/img_B_{}.png'.format(test_result_path, current_step))
 
+                # Calculate test metrics for change detection
+                has_change_head = hasattr(cd_model, 'use_change_head') and cd_model.use_change_head
+                test_change_metrics = {}
+                
+                # Only compute change metrics if model has change head
+                if has_change_head:
+                    # Ideally we would collect metrics over all test batches
+                    # but for simplicity we'll just use the last batch metrics if available
+                    if 'change_pred' in locals() and isinstance(outputs, tuple) and len(outputs) >= 3:
+                        # Create binary change ground truth
+                        test_gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
+                        test_gt_np = test_gt_bin.cpu().numpy().astype(np.uint8)
+                        
+                        # Extract change prediction
+                        if change_pred.size(1) == 2:
+                            test_change_pred_mask = torch.argmax(change_pred, dim=1)
+                        elif change_pred.size(1) == 1:
+                            test_change_pred_mask = (torch.sigmoid(change_pred[:, 0]) > 0.5).long()
+                            
+                        # Calculate metrics
+                        test_change_pred_np = test_change_pred_mask.cpu().numpy().astype(np.uint8)
+                        
+                        true_pos = np.logical_and(test_change_pred_np == 1, test_gt_np == 1).sum()
+                        false_pos = np.logical_and(test_change_pred_np == 1, test_gt_np == 0).sum()
+                        false_neg = np.logical_and(test_change_pred_np == 0, test_gt_np == 1).sum()
+                        true_neg = np.logical_and(test_change_pred_np == 0, test_gt_np == 0).sum()
+                        
+                        total = true_pos + true_neg + false_pos + false_neg
+                        test_change_acc = (true_pos + true_neg) / max(total, 1e-8)
+                        test_change_iou = true_pos / max(true_pos + false_pos + false_neg, 1e-8)
+                        test_change_f1 = 2 * true_pos / max(2 * true_pos + false_pos + false_neg, 1e-8)
+                        
+                        # Store in dictionary
+                        test_change_metrics = {
+                            'test/epoch_change_f1': float(test_change_f1),
+                            'test/epoch_change_iou': float(test_change_iou),
+                            'test/epoch_change_acc': float(test_change_acc)
+                        }
+                
                 if test_seg_updates > 0:
                     test_scores_seg = test_metric_seg.get_scores()
-                    wandb.log({
+                    test_metrics = {
                         'test/epoch_mF1': float(test_scores_seg.get('mf1', 0.0)),
                         'test/epoch_mIoU': float(test_scores_seg.get('miou', 0.0)),
                         'test/epoch_OA': float(test_scores_seg.get('acc', 0.0)),
@@ -1094,5 +1305,11 @@ if torch.cuda.is_available():
                         'test/epoch_fscd': float(test_scores_seg.get('Fscd', 0.0)),
                         'test/epoch_iou_mean': float(test_scores_seg.get('SCD_IoU_mean', 0.0)),
                         'epoch': current_epoch
-                    })
+                    }
+                    
+                    # Add change metrics if available
+                    test_metrics.update(test_change_metrics)
+                    
+                    # Log to wandb
+                    wandb.log(test_metrics)
                 logger.info('End of testing...')
