@@ -1,5 +1,5 @@
 {
-  "name": "SECOND-train-CDMamba-Seg-CD",
+  "name": "SECOND-train-CDMamba-Seg-CD-Multiclass",
   "phase": "train",
   "gpu_ids":[0],
 
@@ -47,20 +47,11 @@
 
   "model" : {
     "name" : "cdmamba_seg_cd",
-    "loss" : "extended_triplet",
+    "loss" : "multi_class_cd",
     "loss_weights": {
       "seg_t1": 1.0,
       "seg_t2": 1.0,
       "change": 1.0
-    },
-    "extended_triplet": {
-      "lambda_seg": 1.0,
-      "lambda_cd": 1.0,
-      "lambda_unch": 0.2,
-      "lambda_ch": 0.2,
-      "lambda_cpl": 0.5,
-      "T": 4.0,
-      "margin": 0.3
     },
     "use_change_head": true,
     "init_filters" : 16,

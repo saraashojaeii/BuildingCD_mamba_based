@@ -19,7 +19,9 @@ from core.utils import *
 import numpy as np
 import random
 from misc.metric_tools import ConfuseMatrixMeter
+# Import all the loss functions
 from models.loss import *
+from models.loss import MultiClassCDLoss  # Explicitly import MultiClassCDLoss
 from collections import OrderedDict
 import core.metrics as Metrics
 from misc.torchutils import get_scheduler, save_network
@@ -266,6 +268,8 @@ if __name__ == '__main__':
             T=cfg.get('T', 4.0),
             margin=cfg.get('margin', 0.3)
         )
+        # Set the same loss function for change prediction
+        loss_fun_change = loss_fun
     elif opt['model']['loss'] == 'seg_loss':
         loss_fun = ComboSegLoss(
             class_weights_ce=ce_weights,
@@ -276,6 +280,17 @@ if __name__ == '__main__':
             label_smoothing=0.0,
             include_bg=True,
         ).to(device)
+    elif opt['model']['loss'] == 'multi_class_cd':
+        # Multi-class change detection loss that handles segmentation and change prediction
+        loss_weights = opt['model'].get('loss_weights', {'seg_t1': 1.0, 'seg_t2': 1.0, 'change': 1.0})
+        loss_fun = MultiClassCDLoss(
+            num_classes=num_classes, 
+            seg_loss="cedice",  # Use combined CE+Dice for segmentation
+            change_loss="ce",   # Use CE for change detection
+            loss_weights=loss_weights
+        )
+        # Share the same loss function for both segmentation and change
+        loss_fun_change = loss_fun
     else:
         raise ValueError(f"Unsupported loss function type: {opt['model']['loss']}")
 
@@ -454,21 +469,41 @@ if torch.cuda.is_available():
                             # Unpack the outputs
                             seg_logits_t1, seg_logits_t2, change_pred = outputs
                             
-                            # Calculate segmentation losses
-                            loss_t1 = loss_fun(seg_logits_t1, seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t1, seg_t1)
-                            loss_t2 = loss_fun(seg_logits_t2, seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t2, seg_t2)
-                            
-                            # Calculate change detection loss
-                            change_bin = normalize_change_target(seg_t1, seg_t2, None)  # [B,H,W] long {0,1}
-                            loss_change = loss_fun_change(change_pred, change_bin)
-                            
-                            # Combine losses
-                            raw_loss = loss_t1 + loss_t2 + loss_change
-                            loss_dict = {
-                                'seg_t1': float(loss_t1.item()),
-                                'seg_t2': float(loss_t2.item()),
-                                'change': float(loss_change.item())
-                            }
+                            # For multi_class_cd loss, use specialized handling
+                            if opt['model']['loss'] == 'multi_class_cd':
+                                # Prepare the predictions and targets in the format expected by MultiClassCDLoss
+                                preds = (seg_logits_t1, seg_logits_t2, change_pred)
+                                targets = {
+                                    'seg_t1': seg_t1,
+                                    'seg_t2': seg_t2,
+                                    # No explicit target needed for change_pred as the loss computes it from seg_t1 and seg_t2
+                                }
+                                
+                                # MultiClassCDLoss handles all parts together
+                                raw_loss, loss_components = loss_fun(preds, targets)
+                                
+                                # Extract individual loss components for logging
+                                loss_dict = {
+                                    'seg_t1': float(loss_components.get('seg_t1', 0.0)),
+                                    'seg_t2': float(loss_components.get('seg_t2', 0.0)),
+                                    'change': float(loss_components.get('change', 0.0))
+                                }
+                            else:
+                                # Calculate segmentation losses separately
+                                loss_t1 = loss_fun(seg_logits_t1, seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t1, seg_t1)
+                                loss_t2 = loss_fun(seg_logits_t2, seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t2, seg_t2)
+                                
+                                # Calculate change detection loss
+                                change_bin = normalize_change_target(seg_t1, seg_t2, None)  # [B,H,W] long {0,1}
+                                loss_change = loss_fun_change(change_pred, change_bin)
+                                
+                                # Combine losses
+                                raw_loss = loss_t1 + loss_t2 + loss_change
+                                loss_dict = {
+                                    'seg_t1': float(loss_t1.item()),
+                                    'seg_t2': float(loss_t2.item()),
+                                    'change': float(loss_change.item())
+                                }
                         else:
                             # Pure segmentation loss: sum of CE on T1 and T2
                             loss_t1 = loss_fun(seg_logits_t1, seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(seg_logits_t1, seg_t1)
@@ -476,10 +511,18 @@ if torch.cuda.is_available():
                             raw_loss = loss_t1 + loss_t2
                             loss_dict = {'seg_t1': float(loss_t1.item()), 'seg_t2': float(loss_t2.item())}
                     elif opt['model']['loss'] == 'extended_triplet':
-                        # Expect (seg_t1, seg_t2)
-                        assert isinstance(outputs, (tuple, list)) and len(outputs) == 2, \
-                            "Expected model to return (seg_t1, seg_t2)"
-                        seg_logits_t1, seg_logits_t2 = outputs
+                        # Extended triplet loss handling
+                        if isinstance(outputs, (tuple, list)):
+                            if len(outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
+                                # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
+                                seg_logits_t1, seg_logits_t2, _ = outputs  # Ignore change_logits from model
+                            elif len(outputs) == 2:
+                                # Standard dual-output model
+                                seg_logits_t1, seg_logits_t2 = outputs
+                            else:
+                                raise ValueError(f"Unexpected outputs format for extended_triplet loss: {len(outputs)} elements")
+                        else:
+                            raise ValueError("Expected tuple/list outputs for extended_triplet loss")
 
                         # TripletChangeSegLoss expects a 1-channel change logit
                         change_bin = normalize_change_target(seg_t1, seg_t2, None)  # [B,H,W] long {0,1}
@@ -701,16 +744,29 @@ if torch.cuda.is_available():
                             val_outputs = cd_model(val_img1, val_img2)
                             val_seg_logits_t1, val_seg_logits_t2, val_change_pred = val_outputs
                             
-                            # Calculate segmentation losses
-                            loss_t1 = loss_fun(val_seg_logits_t1, val_seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t1, val_seg_t1)
-                            loss_t2 = loss_fun(val_seg_logits_t2, val_seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t2, val_seg_t2)
-                            
-                            # Calculate change detection loss
-                            val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, None)
-                            loss_change = loss_fun_change(val_change_pred, val_change_bin)
-                            
-                            # Combine losses
-                            val_loss = loss_t1 + loss_t2 + loss_change
+                            # For multi_class_cd loss, use specialized handling
+                            if opt['model']['loss'] == 'multi_class_cd':
+                                # Prepare the predictions and targets in the format expected by MultiClassCDLoss
+                                val_preds = (val_seg_logits_t1, val_seg_logits_t2, val_change_pred)
+                                val_targets = {
+                                    'seg_t1': val_seg_t1,
+                                    'seg_t2': val_seg_t2
+                                    # No explicit target needed for change_pred as the loss computes it from seg_t1 and seg_t2
+                                }
+                                
+                                # MultiClassCDLoss handles all parts together
+                                val_loss, _ = loss_fun(val_preds, val_targets)
+                            else:
+                                # Calculate segmentation losses
+                                loss_t1 = loss_fun(val_seg_logits_t1, val_seg_t1) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t1, val_seg_t1)
+                                loss_t2 = loss_fun(val_seg_logits_t2, val_seg_t2) if isinstance(loss_fun, nn.Module) else loss_fun(val_seg_logits_t2, val_seg_t2)
+                                
+                                # Calculate change detection loss
+                                val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, None)
+                                loss_change = loss_fun_change(val_change_pred, val_change_bin)
+                                
+                                # Combine losses
+                                val_loss = loss_t1 + loss_t2 + loss_change
                         else:
                             # Legacy mode: separate forward passes
                             val_seg_logits_t1 = cd_model(val_img1)
@@ -722,7 +778,19 @@ if torch.cuda.is_available():
                     else:
                         val_outputs = cd_model(val_img1, val_img2)
                         if opt['model']['loss'] == 'extended_triplet':
-                            val_seg_logits_t1, val_seg_logits_t2 = val_outputs
+                            # Extended triplet loss handling for validation
+                            if isinstance(val_outputs, (tuple, list)):
+                                if len(val_outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
+                                    # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
+                                    val_seg_logits_t1, val_seg_logits_t2, _ = val_outputs  # Ignore change_logits from model
+                                elif len(val_outputs) == 2:
+                                    # Standard dual-output model
+                                    val_seg_logits_t1, val_seg_logits_t2 = val_outputs
+                                else:
+                                    raise ValueError(f"Unexpected val_outputs format for extended_triplet loss: {len(val_outputs)} elements")
+                            else:
+                                raise ValueError("Expected tuple/list val_outputs for extended_triplet loss")
+                                
                             val_targets = {"seg_t1": val_seg_t1, "seg_t2": val_seg_t2}
                             val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2)
                             val_loss, val_loss_dict = loss_fun(val_outputs_adjusted, val_targets)
