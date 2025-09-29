@@ -82,11 +82,13 @@ def test_triplet_loss():
     # Test the triplet loss function
     print("\nTesting triplet loss function...")
     try:
-        # TripletChangeSegLoss only uses seg_logits_t1 and seg_logits_t2
-        preds = (seg_logits_t1, seg_logits_t2)  # Ignores change_logits from model
+        # TripletChangeSegLoss requires all three elements
+        change_bin = normalize_change_target(seg_t1, seg_t2, device)  # [B,H,W] long {0,1}
+        preds = (seg_logits_t1, seg_logits_t2, change_logits)
         labels = {
             'seg_t1': seg_t1,
-            'seg_t2': seg_t2
+            'seg_t2': seg_t2,
+            'change': change_bin
         }
         
         # Calculate loss

@@ -515,10 +515,15 @@ if torch.cuda.is_available():
                         if isinstance(outputs, (tuple, list)):
                             if len(outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
                                 # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
-                                seg_logits_t1, seg_logits_t2, _ = outputs  # Ignore change_logits from model
+                                seg_logits_t1, seg_logits_t2, change_logits = outputs
                             elif len(outputs) == 2:
                                 # Standard dual-output model
                                 seg_logits_t1, seg_logits_t2 = outputs
+                                
+                                # Create a dummy change_logits for TripletChangeSegLoss
+                                # This should be a 1-channel tensor with same spatial dims
+                                b, c, h, w = seg_logits_t1.shape
+                                change_logits = torch.zeros((b, 1, h, w), device=seg_logits_t1.device)
                             else:
                                 raise ValueError(f"Unexpected outputs format for extended_triplet loss: {len(outputs)} elements")
                         else:
@@ -527,8 +532,9 @@ if torch.cuda.is_available():
                         # TripletChangeSegLoss expects a 1-channel change logit
                         change_bin = normalize_change_target(seg_t1, seg_t2, None)  # [B,H,W] long {0,1}
 
-                        preds  = (seg_logits_t1, seg_logits_t2)
-                        labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2}
+                        # TripletChangeSegLoss expects 3 elements in preds
+                        preds = (seg_logits_t1, seg_logits_t2, change_logits)
+                        labels = {'seg_t1': seg_t1, 'seg_t2': seg_t2, 'change': change_bin}
 
                         if current_step == 0:
                             logger.info(f"[TRAIN dtype-check] change_bin: shape={tuple(change_bin.shape)}, dtype={change_bin.dtype}, device={change_bin.device}")
@@ -782,17 +788,29 @@ if torch.cuda.is_available():
                             if isinstance(val_outputs, (tuple, list)):
                                 if len(val_outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
                                     # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
-                                    val_seg_logits_t1, val_seg_logits_t2, _ = val_outputs  # Ignore change_logits from model
+                                    val_seg_logits_t1, val_seg_logits_t2, val_change_logits = val_outputs
                                 elif len(val_outputs) == 2:
                                     # Standard dual-output model
                                     val_seg_logits_t1, val_seg_logits_t2 = val_outputs
+                                    
+                                    # Create dummy change logits for validation
+                                    b, c, h, w = val_seg_logits_t1.shape
+                                    val_change_logits = torch.zeros((b, 1, h, w), device=val_seg_logits_t1.device)
                                 else:
                                     raise ValueError(f"Unexpected val_outputs format for extended_triplet loss: {len(val_outputs)} elements")
                             else:
                                 raise ValueError("Expected tuple/list val_outputs for extended_triplet loss")
-                                
-                            val_targets = {"seg_t1": val_seg_t1, "seg_t2": val_seg_t2}
-                            val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2)
+                            
+                            # Create change mask from segmentation targets
+                            val_change_bin = normalize_change_target(val_seg_t1, val_seg_t2, None)
+                            
+                            # Prepare targets and outputs for TripletChangeSegLoss
+                            val_targets = {
+                                "seg_t1": val_seg_t1, 
+                                "seg_t2": val_seg_t2,
+                                "change": val_change_bin
+                            }
+                            val_outputs_adjusted = (val_seg_logits_t1, val_seg_logits_t2, val_change_logits)
                             val_loss, val_loss_dict = loss_fun(val_outputs_adjusted, val_targets)
                     
                     val_loss_total += val_loss.item()
