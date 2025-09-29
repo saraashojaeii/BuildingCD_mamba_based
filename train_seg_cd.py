@@ -516,6 +516,11 @@ if torch.cuda.is_available():
                             if len(outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
                                 # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
                                 seg_logits_t1, seg_logits_t2, change_logits = outputs
+                                
+                                # Convert 2-channel change_logits [B,2,H,W] to 1-channel [B,1,H,W]
+                                # We need the logit for 'change' class (second channel)
+                                if change_logits.size(1) == 2:
+                                    change_logits = change_logits[:, 1:2, :, :]
                             elif len(outputs) == 2:
                                 # Standard dual-output model
                                 seg_logits_t1, seg_logits_t2 = outputs
@@ -789,6 +794,11 @@ if torch.cuda.is_available():
                                 if len(val_outputs) == 3 and isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'cdmamba_seg_cd':
                                     # CDMamba_seg_cd model returns (seg_t1, seg_t2, change_logits)
                                     val_seg_logits_t1, val_seg_logits_t2, val_change_logits = val_outputs
+                                    
+                                    # Convert 2-channel change_logits [B,2,H,W] to 1-channel [B,1,H,W]
+                                    # We need the logit for 'change' class (second channel)
+                                    if val_change_logits.size(1) == 2:
+                                        val_change_logits = val_change_logits[:, 1:2, :, :]
                                 elif len(val_outputs) == 2:
                                     # Standard dual-output model
                                     val_seg_logits_t1, val_seg_logits_t2 = val_outputs

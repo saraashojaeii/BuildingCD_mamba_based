@@ -84,7 +84,15 @@ def test_triplet_loss():
     try:
         # TripletChangeSegLoss requires all three elements
         change_bin = normalize_change_target(seg_t1, seg_t2, device)  # [B,H,W] long {0,1}
-        preds = (seg_logits_t1, seg_logits_t2, change_logits)
+        
+        # Convert 2-channel change_logits [B,2,H,W] to 1-channel [B,1,H,W]
+        # We need the logit for 'change' class (second channel)
+        if change_logits.size(1) == 2:
+            change_logits_single = change_logits[:, 1:2, :, :]
+        else:
+            change_logits_single = change_logits
+            
+        preds = (seg_logits_t1, seg_logits_t2, change_logits_single)
         labels = {
             'seg_t1': seg_t1,
             'seg_t2': seg_t2,
