@@ -34,7 +34,7 @@ from itertools import islice
 
 if __name__ == '__main__':
     parser =argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='/home/saraashojaeii/git/BuildingCD_mamba_based/config/second_cdmamba/second_cdmamba.json',
+    parser.add_argument('--config', type=str, default='/home/saraashojaeii/git/BuildingCD_mamba_based/config/second_cdmamba/cdmamba_seg_cd.json',
                         help='JSON file for configuration')
     parser.add_argument('--phase', type=str, default='train',
                         choices=['train', 'test'], help='Run either train(training + validation) or testing',)
