@@ -648,15 +648,20 @@ if torch.cuda.is_available():
                     })
 
                 # ------------------ Metrics ------------------
-                # Change (binary) — skip for segmentation-only model
+                # Change (binary) — calculate for models with change head
                 model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
                 has_change_head = (model_name != 'CDMamba_seg_cd') or (hasattr(cd_model, 'use_change_head') and cd_model.use_change_head)
                 
-                if not has_change_head:
-                    current_score_val = 0.0
-                else:
+                # Initialize change score (will be updated for models that compute actual change metrics)
+                current_score_val = 0.0
+                
+                if has_change_head:
+                    # Create change mask (binary) from segmentation masks
                     gt_bin = (normalize_change_target(seg_t1, seg_t2, None) > 0).long().detach()
                     gt_np   = gt_bin.detach().cpu().numpy().astype(np.uint8)
+                    
+                    # TODO: For extended_triplet loss, we don't calculate a specific change metric yet
+                    # For other loss functions, calculate appropriate metrics here
                     
 
                 # Segmentation (multi-class)
