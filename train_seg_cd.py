@@ -194,7 +194,7 @@ if __name__ == '__main__':
         try:
             # Calculate input size depending on model type
             model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
-            if model_name == 'CDMamba_seg':
+            if model_name == 'CDMamba_seg_cd':
                 # Check if the model has change head
                 if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
                     input_size = [(2, 3, 512, 512), (2, 3, 512, 512)]  # dual-input for change head
@@ -378,7 +378,7 @@ if torch.cuda.is_available():
                 with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
                     # Support single-input segmentation model by running it on each image
                     model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
-                    if model_name == 'CDMamba_seg':
+                    if model_name == 'CDMamba_seg_cd':
                         # Check if the model has use_change_head attribute and it's enabled
                         if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
                             # Use the dual-input forward pass with change head
@@ -448,7 +448,7 @@ if torch.cuda.is_available():
                     if isinstance(seg_t2, torch.Tensor): seg_t2 = seg_t2.to(device).long()
 
                     # ------------------ Compute loss (segmentation + optional change head) ------------------
-                    if (isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'CDMamba_seg'):
+                    if (isinstance(opt, dict) and opt.get('model', {}).get('name', '') == 'CDMamba_seg_cd'):
                         # Check if model uses change head and outputs have 3 elements
                         if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head and isinstance(outputs, tuple) and len(outputs) == 3:
                             # Unpack the outputs
@@ -596,7 +596,7 @@ if torch.cuda.is_available():
                 # ------------------ Metrics ------------------
                 # Change (binary) — skip for segmentation-only model
                 model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
-                has_change_head = (model_name != 'CDMamba_seg') or (hasattr(cd_model, 'use_change_head') and cd_model.use_change_head)
+                has_change_head = (model_name != 'CDMamba_seg_cd') or (hasattr(cd_model, 'use_change_head') and cd_model.use_change_head)
                 
                 if not has_change_head:
                     current_score_val = 0.0
@@ -694,7 +694,7 @@ if torch.cuda.is_available():
                     
                     # Forward pass for validation (support segmentation model with change head)
                     model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
-                    if model_name == 'CDMamba_seg':
+                    if model_name == 'CDMamba_seg_cd':
                         # Check if the model has change head
                         if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
                             # Use the dual-input forward pass with change head
@@ -899,7 +899,7 @@ if torch.cuda.is_available():
 
                     # Forward pass for testing (support segmentation model with change head)
                     _model_name = opt.get('model', {}).get('name', '') if isinstance(opt, dict) else ''
-                    if _model_name == 'CDMamba_seg':
+                    if _model_name == 'CDMamba_seg_cd':
                         # Check if the model has change head
                         if hasattr(cd_model, 'use_change_head') and cd_model.use_change_head:
                             # Use the dual-input forward pass with change head
