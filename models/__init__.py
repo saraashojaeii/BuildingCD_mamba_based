@@ -41,7 +41,7 @@ def create_CD_model(opt):
                               blocks_down=opt['model']['blocks_down'], blocks_up=opt['model']['blocks_up'], resdiual=opt['model']['resdiual'], diff_abs=opt['model']['diff_abs'], stage=opt['model']['stage'],
                               mamba_act=opt['model']['mamba_act'], local_query_model=opt['model']['local_query_model'])
     # sota model
-    elif opt['model']['name'] == 'cdmamba_seg':
+    elif opt['model']['name'] in ['cdmamba_seg', 'CDMamba_seg']:
         # Segmentation-only model expects a simpler signature
         cd_model = cdmamba_seg(
             spatial_dims=opt['model']['spatial_dims'],
@@ -54,7 +54,7 @@ def create_CD_model(opt):
             blocks_up=opt['model']['blocks_up'],
             up_conv_mode=opt['model']['up_conv_mode'],
         )
-    elif opt['model']['name'] == 'cdmamba_seg_cd':
+    elif opt['model']['name'] in ['cdmamba_seg_cd', 'CDMamba_seg_cd']:
         # Segmentation + change detection model
         cd_model = cdmamba_seg_cd(
             spatial_dims=opt['model']['spatial_dims'],
