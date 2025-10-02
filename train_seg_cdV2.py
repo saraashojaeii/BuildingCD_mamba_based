@@ -192,15 +192,15 @@ def main():
     for phase, dataset_opt in opt['datasets'].items():
         if phase == 'train' and args.phase != 'test':
             train_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase='train')
-            train_loader = Data.create_cd_dataloader(train_set, dataset_opt, 'train', seed_worker=None)
+            train_loader = Data.create_cd_dataloader(train_set, dataset_opt, 'train', seed_worker=None, g=None)
             opt['len_train_dataloader'] = len(train_loader)
         elif phase == 'val' and args.phase != 'test':
             val_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase='val')
-            val_loader = Data.create_cd_dataloader(val_set, dataset_opt, 'val', seed_worker=None)
+            val_loader = Data.create_cd_dataloader(val_set, dataset_opt, 'val', seed_worker=None, g=None)
             opt['len_val_dataloader'] = len(val_loader)
         elif phase == 'test':
             test_set = Data.create_scd_dataset(dataset_opt=dataset_opt, phase='test')
-            test_loader = Data.create_cd_dataloader(test_set, dataset_opt, 'test', seed_worker=None)
+            test_loader = Data.create_cd_dataloader(test_set, dataset_opt, 'test', seed_worker=None, g=None)
             opt['len_test_dataloader'] = len(test_loader)
 
     # Class weights (optional)
