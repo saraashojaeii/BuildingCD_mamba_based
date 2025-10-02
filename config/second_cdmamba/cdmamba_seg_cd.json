@@ -1,7 +1,6 @@
 {
   "name": "SECOND-train-CDMamba-Seg-CD",
-  "phase": "train",
-  "gpu_ids":[0],
+  "gpu_ids": [0],
 
   "wandb": {
     "project": "BuildingCD_mamba_based"
@@ -30,10 +29,9 @@
       "resolution": 512,
       "num_workers": 4,
       "batch_size": 2,
-      "use_shuffle": true,
+      "use_shuffle": false,
       "data_len": -1
     },
-
     "test": {
       "name": "SECOND-CD-256",
       "datasetroot": "/root/home/pvc/SECOND/test",
@@ -45,14 +43,10 @@
     }
   },
 
-  "model" : {
-    "name" : "cdmamba_seg_cd",
-    "loss" : "extended_triplet",
-    "loss_weights": {
-      "seg_t1": 1.0,
-      "seg_t2": 1.0,
-      "change": 1.0
-    },
+  "model": {
+    "name": "CDMamba_seg_cd",                      // NOTE: case-sensitive, matches training script checks
+    "loss": "extended_triplet",
+    "loss_weights": { "seg_t1": 1.0, "seg_t2": 1.0, "change": 1.0 },
     "extended_triplet": {
       "lambda_seg": 1.0,
       "lambda_cd": 1.0,
@@ -62,31 +56,37 @@
       "T": 4.0,
       "margin": 0.3
     },
+
     "use_change_head": true,
-    "init_filters" : 16,
-    "n_classes" : 6,
-    "conv_mode" : "deepwise",
-    "up_conv_mode" : "deepwise",
-    "spatial_dims" : 2,
-    "in_channels" : 3,
-    "blocks_down" : [1, 2, 2, 4],
-    "blocks_up" : [1, 1, 1],
-    "norm" : ["GROUP", {"num_groups": 8}]
+    "spatial_dims": 2,
+
+    "in_channels": 3,                              // used by the model factory
+    "in_nc": 3,                                    // used by GFLOPs summary in train script
+
+    "n_classes": 6,
+    "init_filters": 32,                            // stronger default per (#13)
+    "conv_mode": "deepwise",
+    "up_conv_mode": "deepwise",
+    "blocks_down": [1, 2, 2, 4],
+    "blocks_up": [1, 1, 1],
+    "norm": ["GROUP", { "num_groups": 8 }],
+
+    "learned_last_n_ups": 2,                       // enable learned upsampling for last 2 stages (#7)
+    "return_pyramids": true                        // expose pyramids for future consistency losses (#11)
   },
 
-  "train" : {
-    "n_epoch" : 200,
-    "train_print_iter" : 500,
-    "val_freq" : 1,
-    "val_print_iter" : 50,
-    "optimizer" :{
-      "type" : "adam",
-      "lr" : 1e-4
-    },
-    "sheduler" : {
-      "lr_policy" : "linear",
-      "n_step" : 3,
-      "gamma" : 0.1
+  "train": {
+    "n_epoch": 200,
+    "train_print_iter": 500,
+    "val_freq": 1,
+    "val_print_iter": 50,
+    "ignore_index": 255,
+    "grad_accum": 2,
+
+    "optimizer": {
+      "type": "adam",
+      "lr": 1e-4,
+      "eta_min": 1e-6                              
     }
   }
 }
