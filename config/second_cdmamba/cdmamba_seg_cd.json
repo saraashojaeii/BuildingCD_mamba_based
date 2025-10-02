@@ -63,7 +63,7 @@
     "in_channels": 3,                              // used by the model factory
     "in_nc": 3,                                    // used by GFLOPs summary in train script
 
-    "n_classes": 6,
+    "n_classes": 7,
     "init_filters": 32,                            // stronger default per (#13)
     "conv_mode": "deepwise",
     "up_conv_mode": "deepwise",
